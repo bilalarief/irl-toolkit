@@ -1,6 +1,9 @@
 #include "irl-toolkit-dock.hpp"
 
 #include "obs/obs-scene-service.hpp"
+#include "net/irl-websocket-server.hpp"
+
+IRLWebSocketServer *irl_get_websocket_server();
 
 #include <QFrame>
 #include <QLabel>
@@ -100,6 +103,16 @@ IRLToolkitDock::IRLToolkitDock(QWidget *parent) : QDockWidget(parent)
 	waitingLabel->setWordWrap(true);
 	mainLayout->addWidget(waitingLabel);
 
+	// WebSocket status (Milestone 4)
+	wsStatusLabel = new QLabel("WebSocket: --", container);
+	wsStatusLabel->setStyleSheet("font-size: 11px; color: #374151; font-family: monospace;");
+	wsStatusLabel->setWordWrap(true);
+	mainLayout->addWidget(wsStatusLabel);
+
+	wsClientsLabel = new QLabel("Clients: 0", container);
+	wsClientsLabel->setStyleSheet("font-size: 11px; color: #6b7280;");
+	mainLayout->addWidget(wsClientsLabel);
+
 	// --- Scene Debug Section (Milestone 3) ---
 	QFrame *sceneDivider = new QFrame(container);
 	sceneDivider->setFrameShape(QFrame::HLine);
@@ -160,9 +173,39 @@ IRLToolkitDock::IRLToolkitDock(QWidget *parent) : QDockWidget(parent)
 	connect(refreshTimer, &QTimer::timeout, this, &IRLToolkitDock::refreshSceneInfo);
 	refreshTimer->start(2000);
 	refreshSceneInfo();
+
+	// WebSocket status timer
+	wsTimer = new QTimer(this);
+	connect(wsTimer, &QTimer::timeout, this, &IRLToolkitDock::updateWebSocketStatus);
+	wsTimer->start(1000);
+	updateWebSocketStatus();
 }
 
 IRLToolkitDock::~IRLToolkitDock() = default;
+
+void IRLToolkitDock::updateWebSocketStatus()
+{
+	IRLWebSocketServer *srv = irl_get_websocket_server();
+	if (!srv) {
+		wsStatusLabel->setText("WebSocket: not started");
+		wsStatusLabel->setStyleSheet("font-size: 11px; color: #dc2626; font-family: monospace;");
+		wsClientsLabel->setText("Clients: 0");
+		return;
+	}
+	if (srv->isListening()) {
+		wsStatusLabel->setText(QString("WebSocket: ws://localhost:%1").arg(srv->port()));
+		wsStatusLabel->setStyleSheet("font-size: 11px; color: #16a34a; font-family: monospace;");
+		wsClientsLabel->setText(QString("Clients: %1").arg(srv->clientCount()));
+		if (srv->clientCount() > 0)
+			wsClientsLabel->setStyleSheet("font-size: 11px; color: #16a34a; font-weight: 600;");
+		else
+			wsClientsLabel->setStyleSheet("font-size: 11px; color: #6b7280;");
+	} else {
+		wsStatusLabel->setText(QString("WebSocket: failed (port %1)").arg(srv->port()));
+		wsStatusLabel->setStyleSheet("font-size: 11px; color: #dc2626; font-family: monospace;");
+		wsClientsLabel->setText(QString("Clients: %1").arg(srv->clientCount()));
+	}
+}
 
 void IRLToolkitDock::refreshSceneInfo()
 {

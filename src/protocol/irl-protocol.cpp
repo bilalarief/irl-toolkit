@@ -1,0 +1,64 @@
+#include "protocol/irl-protocol.hpp"
+
+#include "obs/obs-scene-service.hpp"
+
+#include <QJsonArray>
+#include <QJsonObject>
+
+namespace irl_protocol {
+
+QJsonObject handleMessage(const QJsonObject &req)
+{
+	QString type = req.value("type").toString();
+
+	if (type == "ping") {
+		QJsonObject res;
+		res["type"] = "pong";
+		return res;
+	}
+
+	if (type == "get_scene" || type == "get_scene_items") {
+		SceneInfo info = obs_scene_service::getCurrentSceneInfo();
+
+		QJsonObject scene;
+		scene["name"] = QString::fromUtf8(info.name.c_str());
+		scene["canvasWidth"] = static_cast<int>(info.canvas.width);
+		scene["canvasHeight"] = static_cast<int>(info.canvas.height);
+
+		QJsonArray items;
+		for (const auto &it : info.items) {
+			QJsonObject obj;
+			obj["sceneItemId"] = static_cast<qint64>(it.sceneItemId);
+			obj["sourceName"] = QString::fromUtf8(it.sourceName.c_str());
+			obj["sourceType"] = QString::fromUtf8(it.sourceType.c_str());
+			obj["x"] = it.x;
+			obj["y"] = it.y;
+			obj["width"] = it.width;
+			obj["height"] = it.height;
+			obj["scaleX"] = it.scaleX;
+			obj["scaleY"] = it.scaleY;
+			obj["rotation"] = it.rotation;
+			obj["visible"] = it.visible;
+			items.append(obj);
+		}
+		scene["items"] = items;
+
+		QJsonObject res;
+		res["type"] = "scene_state";
+		res["scene"] = scene;
+		// echo requestId if present
+		if (req.contains("requestId"))
+			res["requestId"] = req.value("requestId");
+		return res;
+	}
+
+	// Unknown type
+	QJsonObject err;
+	err["type"] = "error";
+	err["message"] = QString("unknown type: %1").arg(type);
+	if (req.contains("requestId"))
+		err["requestId"] = req.value("requestId");
+	return err;
+}
+
+} // namespace irl_protocol

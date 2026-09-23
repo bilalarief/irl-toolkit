@@ -16,6 +16,7 @@ public:
 
 private slots:
 	void refreshSceneInfo();
+	void updateWebSocketStatus();
 
 private:
 	QLabel *canvasLabel = nullptr;
@@ -23,4 +24,7 @@ private:
 	QLabel *itemsLabel = nullptr;
 	QTextEdit *detailsEdit = nullptr;
 	QTimer *refreshTimer = nullptr;
+	QTimer *wsTimer = nullptr;
+	QLabel *wsStatusLabel = nullptr;
+	QLabel *wsClientsLabel = nullptr;
 };
