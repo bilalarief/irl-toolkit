@@ -1,9 +1,18 @@
 #include "irl-toolkit-dock.hpp"
 
+#include "obs/obs-scene-service.hpp"
+
 #include <QFrame>
 #include <QLabel>
+#include <QPushButton>
+#include <QScrollArea>
+#include <QTextEdit>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QWidget>
+
+#include <obs-module.h>
+#include <plugin-support.h>
 
 IRLToolkitDock::IRLToolkitDock(QWidget *parent) : QDockWidget(parent)
 {
@@ -91,6 +100,45 @@ IRLToolkitDock::IRLToolkitDock(QWidget *parent) : QDockWidget(parent)
 	waitingLabel->setWordWrap(true);
 	mainLayout->addWidget(waitingLabel);
 
+	// --- Scene Debug Section (Milestone 3) ---
+	QFrame *sceneDivider = new QFrame(container);
+	sceneDivider->setFrameShape(QFrame::HLine);
+	sceneDivider->setFrameShadow(QFrame::Sunken);
+	sceneDivider->setStyleSheet("color: #e5e7eb; margin-top: 8px;");
+	mainLayout->addWidget(sceneDivider);
+
+	QLabel *sceneHeader = new QLabel("CURRENT SCENE", container);
+	sceneHeader->setStyleSheet("font-size: 12px; font-weight: 700; color: #6b7280; letter-spacing: 0.8px;");
+	mainLayout->addWidget(sceneHeader);
+
+	canvasLabel = new QLabel("Canvas: --", container);
+	canvasLabel->setStyleSheet("font-size: 12px; color: #374151; font-family: monospace;");
+	mainLayout->addWidget(canvasLabel);
+
+	sceneLabel = new QLabel("Scene: --", container);
+	sceneLabel->setStyleSheet("font-size: 12px; color: #374151; font-weight: 600;");
+	sceneLabel->setWordWrap(true);
+	mainLayout->addWidget(sceneLabel);
+
+	itemsLabel = new QLabel("Items: --", container);
+	itemsLabel->setStyleSheet("font-size: 12px; color: #374151;");
+	mainLayout->addWidget(itemsLabel);
+
+	detailsEdit = new QTextEdit(container);
+	detailsEdit->setReadOnly(true);
+	detailsEdit->setMaximumHeight(140);
+	detailsEdit->setStyleSheet("font-size: 10px; font-family: monospace; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px;");
+	detailsEdit->setPlaceholderText("Scene items will appear here...");
+	mainLayout->addWidget(detailsEdit);
+
+	QPushButton *refreshBtn = new QPushButton("Refresh", container);
+	refreshBtn->setStyleSheet(
+		"QPushButton { background: #111827; color: white; border-radius: 8px; padding: 8px 12px; font-size: 12px; font-weight: 600; }"
+		"QPushButton:hover { background: #1f2937; }"
+		"QPushButton:pressed { background: #030712; }");
+	connect(refreshBtn, &QPushButton::clicked, this, &IRLToolkitDock::refreshSceneInfo);
+	mainLayout->addWidget(refreshBtn);
+
 	mainLayout->addStretch();
 
 	// Footer hint
@@ -104,8 +152,55 @@ IRLToolkitDock::IRLToolkitDock(QWidget *parent) : QDockWidget(parent)
 	setWidget(container);
 
 	// Constrain dock width for OBS's dock area
-	setMinimumWidth(280);
+	setMinimumWidth(300);
 	setMaximumWidth(420);
+
+	// Auto-refresh timer (every 2s) + immediate
+	refreshTimer = new QTimer(this);
+	connect(refreshTimer, &QTimer::timeout, this, &IRLToolkitDock::refreshSceneInfo);
+	refreshTimer->start(2000);
+	refreshSceneInfo();
 }
 
 IRLToolkitDock::~IRLToolkitDock() = default;
+
+void IRLToolkitDock::refreshSceneInfo()
+{
+	SceneInfo info = obs_scene_service::getCurrentSceneInfo();
+
+	if (info.canvas.width && info.canvas.height) {
+		canvasLabel->setText(QString("Canvas: %1 × %2").arg(info.canvas.width).arg(info.canvas.height));
+	} else {
+		canvasLabel->setText("Canvas: --");
+	}
+
+	if (!info.name.empty()) {
+		sceneLabel->setText(QString("Scene: %1").arg(QString::fromUtf8(info.name.c_str())));
+	} else {
+		sceneLabel->setText("Scene: (none)");
+	}
+
+	itemsLabel->setText(QString("Items: %1").arg(info.items.size()));
+
+	QString details;
+	for (const auto &item : info.items) {
+		details += QString("#%1 %2 (%3)  x:%4 y:%5  %6×%7  s:%8,%9  r:%10°  %11\n")
+				   .arg(item.sceneItemId)
+				   .arg(QString::fromUtf8(item.sourceName.c_str()))
+				   .arg(QString::fromUtf8(item.sourceType.c_str()))
+				   .arg(qRound(item.x))
+				   .arg(qRound(item.y))
+				   .arg(qRound(item.width))
+				   .arg(qRound(item.height))
+				   .arg(item.scaleX, 0, 'f', 2)
+				   .arg(item.scaleY, 0, 'f', 2)
+				   .arg(qRound(item.rotation))
+				   .arg(item.visible ? "visible" : "hidden");
+	}
+	if (details.isEmpty())
+		details = "(no items or scene not loaded)";
+	detailsEdit->setPlainText(details);
+
+	obs_log(LOG_INFO, "scene refresh: canvas %ux%u scene '%s' items %zu", info.canvas.width, info.canvas.height,
+		info.name.c_str(), info.items.size());
+}

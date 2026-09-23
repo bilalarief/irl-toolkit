@@ -39,6 +39,8 @@ target_sources(
   PRIVATE
     src/plugin-main.cpp
     src/irl-toolkit-dock.cpp
-    src/irl-toolkit-dock.hpp)
+    src/irl-toolkit-dock.hpp
+    src/obs/obs-scene-service.cpp
+    src/obs/obs-scene-service.hpp)
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
