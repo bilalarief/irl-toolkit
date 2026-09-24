@@ -4,6 +4,8 @@
 #include <obs.h>
 #include <util/config-file.h>
 
+#pragma warning(disable : 4996)
+
 #include <QApplication>
 #include <QBuffer>
 #include <QCoreApplication>
