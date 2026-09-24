@@ -5,6 +5,7 @@
 #include <QApplication>
 #include <QBuffer>
 #include <QGuiApplication>
+#include <QImage>
 #include <QMainWindow>
 #include <QPixmap>
 #include <QScreen>
@@ -43,7 +44,6 @@ static QWidget *findPreviewWidget(QMainWindow *mainWindow)
 
 	// 3. Fallback: centralWidget is most likely to contain preview
 	if (QWidget *central = mainWindow->centralWidget()) {
-		// preview is usually the largest child of centralWidget
 		QWidget *best = nullptr;
 		int bestArea = 0;
 		for (QWidget *w : central->findChildren<QWidget *>()) {
@@ -82,28 +82,69 @@ QString capturePreviewBase64(int maxWidth)
 		return {};
 	}
 
-	// Try screen grab for GPU preview (more reliable than QWidget::grab)
 	QPixmap pix;
-	if (QWindow *wh = preview->windowHandle()) {
-		QScreen *screen = wh->screen();
-		if (!screen)
-			screen = QGuiApplication::primaryScreen();
-		if (screen) {
-			// Map preview widget geometry to global
-			QPoint globalPos = preview->mapToGlobal(QPoint(0, 0));
-			pix = screen->grabWindow(wh->winId(), globalPos.x(), globalPos.y(), preview->width(), preview->height());
+
+	// Method 1: Screen grab of desktop cropped to preview geometry (captures GPU content)
+	if (QScreen *screen = QGuiApplication::primaryScreen()) {
+		QPoint globalPos = preview->mapToGlobal(QPoint(0, 0));
+		// Use desktop window 0 for full screen capture then crop (captures GPU preview)
+		QPixmap desktop = screen->grabWindow(0, globalPos.x(), globalPos.y(), preview->width(), preview->height());
+		if (!desktop.isNull()) {
+			pix = desktop;
+			obs_log(LOG_INFO, "thumbnail: captured via QScreen grabWindow(0) %dx%d", pix.width(), pix.height());
+		} else {
+			obs_log(LOG_INFO, "thumbnail: QScreen grabWindow(0) failed, trying windowHandle");
+			if (QWindow *wh = preview->windowHandle()) {
+				QScreen *s = wh->screen();
+				if (!s) s = screen;
+				QPixmap winPix = s->grabWindow(wh->winId(), globalPos.x(), globalPos.y(), preview->width(), preview->height());
+				if (!winPix.isNull()) {
+					pix = winPix;
+					obs_log(LOG_INFO, "thumbnail: captured via windowHandle %dx%d", pix.width(), pix.height());
+				}
+			}
 		}
 	}
+
+	// Fallback: QWidget::grab (for software rendered)
 	if (pix.isNull()) {
-		// Fallback to widget grab
 		pix = preview->grab();
+		if (!pix.isNull()) {
+			obs_log(LOG_INFO, "thumbnail: captured via QWidget::grab %dx%d", pix.width(), pix.height());
+		}
 	}
+
 	if (pix.isNull()) {
-		obs_log(LOG_WARNING, "thumbnail: grab returned null (both screen and widget)");
+		obs_log(LOG_WARNING, "thumbnail: all grab methods failed");
 		return {};
 	}
-	obs_log(LOG_INFO, "thumbnail: captured %dx%d from %s", pix.width(), pix.height(),
-		qPrintable(preview->metaObject()->className()));
+
+	// Check if pix is blank (all same color) – indicates GPU preview not captured
+	QImage img = pix.toImage().scaled(16, 16, Qt::IgnoreAspectRatio, Qt::FastTransformation);
+	bool allSame = true;
+	QRgb first = img.pixel(0, 0);
+	for (int y = 0; y < img.height(); ++y) {
+		for (int x = 0; x < img.width(); ++x) {
+			if (img.pixel(x, y) != first) {
+				allSame = false;
+				break;
+			}
+		}
+		if (!allSame) break;
+	}
+	if (allSame) {
+		obs_log(LOG_WARNING, "thumbnail: captured image is blank (all same color), preview may be GPU, trying alternative");
+		// Try grabbing main window central area as last resort
+		QScreen *screen = QGuiApplication::primaryScreen();
+		if (screen) {
+			QRect mainGeo = mainWindow->geometry();
+			QPixmap mainPix = screen->grabWindow(0, mainGeo.x() + mainGeo.width()/4, mainGeo.y() + mainGeo.height()/4, mainGeo.width()/2, mainGeo.height()/2);
+			if (!mainPix.isNull() && mainPix.width() > 50) {
+				pix = mainPix;
+				obs_log(LOG_INFO, "thumbnail: fallback main window grab %dx%d", pix.width(), pix.height());
+			}
+		}
+	}
 
 	// Scale to maxWidth preserving aspect
 	if (pix.width() > maxWidth) {
@@ -113,12 +154,12 @@ QString capturePreviewBase64(int maxWidth)
 	QByteArray ba;
 	QBuffer buffer(&ba);
 	buffer.open(QIODevice::WriteOnly);
-	// JPEG 75% quality for size
 	if (!pix.save(&buffer, "JPEG", 75)) {
 		obs_log(LOG_WARNING, "thumbnail: save to JPEG failed");
 		return {};
 	}
 
 	QString b64 = QString::fromLatin1(ba.toBase64());
+	obs_log(LOG_INFO, "thumbnail: success %dx%d -> %d bytes b64", pix.width(), pix.height(), b64.size());
 	return QString("data:image/jpeg;base64,") + b64;
 }
