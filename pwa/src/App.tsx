@@ -13,16 +13,19 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [wsInput, setWsInput] = useState(url);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [thumbnail, setThumbnail] = useState<string | null>(null);
 
   // subscribe to editor store
   useEffect(() => store.subscribe(() => force((x) => x + 1)), []);
 
-  // handle incoming scene_state / save_result
+  // handle incoming scene_state / save_result / thumbnail
   useEffect(() => {
     if (!lastMessage) return;
     if (lastMessage.type === 'scene_state') {
       store.setScene(lastMessage.scene);
       setSceneTick((v) => v + 1);
+      // request thumbnail after scene load
+      send({ type: 'get_thumbnail', requestId: `thumb-${Date.now()}` } as const);
     } else if (lastMessage.type === 'save_result') {
       if (lastMessage.success) {
         if (lastMessage.scene) {
@@ -34,12 +37,16 @@ export default function App() {
         }
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus('idle'), 2000);
+        // refresh thumbnail after save
+        send({ type: 'get_thumbnail', requestId: `thumb-${Date.now()}` } as const);
       } else {
         setSaveStatus('error');
         alert(`Save failed: ${lastMessage.error ?? 'unknown'}`);
       }
+    } else if (lastMessage.type === 'thumbnail') {
+      if (lastMessage.data) setThumbnail(lastMessage.data);
     }
-  }, [lastMessage]);
+  }, [lastMessage, send]);
 
   const scene: EditorScene | null = store.current;
 
@@ -75,7 +82,17 @@ export default function App() {
 
   const handleRefresh = () => {
     send({ type: 'get_scene', requestId: `r-${Date.now()}` });
+    send({ type: 'get_thumbnail', requestId: `thumb-${Date.now()}` } as const);
   };
+
+  // periodic thumbnail refresh
+  useEffect(() => {
+    if (status !== 'connected') return;
+    const id = window.setInterval(() => {
+      send({ type: 'get_thumbnail', requestId: `thumb-${Date.now()}` } as const);
+    }, 4000);
+    return () => window.clearInterval(id);
+  }, [status, send]);
 
   return (
     <div className="app">
@@ -124,7 +141,7 @@ export default function App() {
         <p className="section-title">SCENE</p>
         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{scene ? scene.name : '— not loaded —'}</div>
 
-        <Canvas scene={scene} selectedId={selectedId} onSelect={setSelectedId} onMove={handleMove} />
+        <Canvas scene={scene} selectedId={selectedId} onSelect={setSelectedId} onMove={handleMove} thumbnail={thumbnail} />
 
         {scene && (
           <div style={{ marginTop: 12 }} className="item-list">

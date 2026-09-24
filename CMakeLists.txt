@@ -50,6 +50,8 @@ target_sources(
     src/irl-toolkit-dock.hpp
     src/obs/obs-scene-service.cpp
     src/obs/obs-scene-service.hpp
+    src/obs/obs-thumbnail.cpp
+    src/obs/obs-thumbnail.hpp
     src/protocol/irl-protocol.cpp
     src/protocol/irl-protocol.hpp
     src/net/irl-websocket-server.cpp

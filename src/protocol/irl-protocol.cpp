@@ -1,6 +1,7 @@
 #include "protocol/irl-protocol.hpp"
 
 #include "obs/obs-scene-service.hpp"
+#include "obs/obs-thumbnail.hpp"
 
 #include <QJsonArray>
 #include <QJsonObject>
@@ -94,6 +95,19 @@ QJsonObject handleMessage(const QJsonObject &req)
 			}
 			scene["items"] = items;
 			res["scene"] = scene;
+		}
+		return res;
+	}
+
+	if (type == "get_thumbnail") {
+		QString data = capturePreviewBase64(480);
+		QJsonObject res;
+		res["type"] = "thumbnail";
+		res["data"] = data;
+		if (req.contains("requestId"))
+			res["requestId"] = req.value("requestId");
+		if (data.isEmpty()) {
+			res["error"] = "capture failed";
 		}
 		return res;
 	}
