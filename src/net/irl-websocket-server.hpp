@@ -1,9 +1,16 @@
 #pragma once
 
 #include <QObject>
-#include <QWebSocketServer>
 
+#ifdef HAS_QT_WEBSOCKETS
+#include <QWebSocketServer>
 class QWebSocket;
+#else
+#include <QHash>
+#include <QByteArray>
+class QTcpServer;
+class QTcpSocket;
+#endif
 
 class IRLWebSocketServer : public QObject {
 	Q_OBJECT
@@ -25,11 +32,24 @@ signals:
 
 private slots:
 	void onNewConnection();
+#ifdef HAS_QT_WEBSOCKETS
 	void onTextMessage(const QString &message);
+#else
+	void onReadyRead();
+	void handleWsMessage(QTcpSocket *socket, const QString &message);
+	void sendTextMessage(QTcpSocket *socket, const QString &message);
+#endif
 	void onSocketDisconnected();
 
 private:
+#ifdef HAS_QT_WEBSOCKETS
 	QWebSocketServer *server = nullptr;
 	QList<QWebSocket *> clients;
+#else
+	QTcpServer *tcpServer = nullptr;
+	QList<QTcpSocket *> clients;
+	QHash<QTcpSocket *, QByteArray> buffers;
+	QHash<QTcpSocket *, bool> handshaked;
+#endif
 	quint16 listenPort = 0;
 };

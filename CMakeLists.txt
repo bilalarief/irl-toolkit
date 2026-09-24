@@ -22,8 +22,16 @@ if(ENABLE_FRONTEND_API)
 endif()
 
 if(ENABLE_QT)
-  find_package(Qt6 COMPONENTS Widgets Core WebSockets REQUIRED)
-  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Qt6::Core Qt6::Widgets Qt6::WebSockets)
+  find_package(Qt6 COMPONENTS Widgets Core Network REQUIRED)
+  target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Qt6::Core Qt6::Widgets Qt6::Network)
+  # WebSockets is optional in obs-deps prebuilt (not included on Windows). Use QTcpServer fallback if missing.
+  find_package(Qt6 COMPONENTS WebSockets QUIET)
+  if(Qt6WebSockets_FOUND)
+    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Qt6::WebSockets)
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE HAS_QT_WEBSOCKETS=1)
+  else()
+    message(WARNING "Qt6WebSockets not found - building with QTcpServer fallback")
+  endif()
   target_compile_options(
     ${CMAKE_PROJECT_NAME}
     PRIVATE $<$<C_COMPILER_ID:Clang,AppleClang>:-Wno-quoted-include-in-framework-header -Wno-comma>
