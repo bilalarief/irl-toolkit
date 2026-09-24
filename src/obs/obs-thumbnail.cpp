@@ -4,11 +4,17 @@
 
 #include <QApplication>
 #include <QBuffer>
+#include <QCoreApplication>
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QImage>
 #include <QMainWindow>
 #include <QPixmap>
 #include <QScreen>
+#include <QThread>
 #include <QWidget>
 #include <QWindow>
 
@@ -19,8 +25,6 @@ static QWidget *findPreviewWidget(QMainWindow *mainWindow)
 {
 	if (!mainWindow)
 		return nullptr;
-
-	// 1. Try OBSQTDisplay class (actual preview is OBSQTDisplay)
 	for (QWidget *w : mainWindow->findChildren<QWidget *>()) {
 		const char *cls = w->metaObject()->className();
 		QString cn = QString::fromUtf8(cls);
@@ -32,8 +36,6 @@ static QWidget *findPreviewWidget(QMainWindow *mainWindow)
 			}
 		}
 	}
-
-	// 2. Try common object names
 	const QStringList names = {"preview", "previewDisplay", "OBSBasicPreview", "obsPreview", "qtDisplay"};
 	for (const QString &n : names) {
 		if (QWidget *w = mainWindow->findChild<QWidget *>(n)) {
@@ -41,8 +43,6 @@ static QWidget *findPreviewWidget(QMainWindow *mainWindow)
 			return w;
 		}
 	}
-
-	// 3. Fallback: centralWidget is most likely to contain preview
 	if (QWidget *central = mainWindow->centralWidget()) {
 		QWidget *best = nullptr;
 		int bestArea = 0;
@@ -64,63 +64,35 @@ static QWidget *findPreviewWidget(QMainWindow *mainWindow)
 		}
 		return central;
 	}
-
 	return nullptr;
 }
 
-QString capturePreviewBase64(int maxWidth)
+static QString pixmapToBase64(const QPixmap &pix, int maxWidth)
 {
-	QMainWindow *mainWindow = static_cast<QMainWindow *>(obs_frontend_get_main_window());
-	if (!mainWindow) {
-		obs_log(LOG_WARNING, "thumbnail: no main window");
+	QPixmap scaled = pix;
+	if (scaled.width() > maxWidth)
+		scaled = scaled.scaledToWidth(maxWidth, Qt::SmoothTransformation);
+	QByteArray ba;
+	QBuffer buffer(&ba);
+	buffer.open(QIODevice::WriteOnly);
+	if (!scaled.save(&buffer, "JPEG", 70))
 		return {};
-	}
+	return QString("data:image/jpeg;base64,") + QString::fromLatin1(ba.toBase64());
+}
 
-	QWidget *preview = findPreviewWidget(mainWindow);
-	if (!preview) {
-		obs_log(LOG_WARNING, "thumbnail: preview widget not found");
+static QString captureViaScreenGrab(QWidget *preview, int maxWidth)
+{
+	if (!preview)
 		return {};
-	}
-
-	QPixmap pix;
-
-	// Method 1: Screen grab of desktop cropped to preview geometry (captures GPU content)
-	if (QScreen *screen = QGuiApplication::primaryScreen()) {
-		QPoint globalPos = preview->mapToGlobal(QPoint(0, 0));
-		// Use desktop window 0 for full screen capture then crop (captures GPU preview)
-		QPixmap desktop = screen->grabWindow(0, globalPos.x(), globalPos.y(), preview->width(), preview->height());
-		if (!desktop.isNull()) {
-			pix = desktop;
-			obs_log(LOG_INFO, "thumbnail: captured via QScreen grabWindow(0) %dx%d", pix.width(), pix.height());
-		} else {
-			obs_log(LOG_INFO, "thumbnail: QScreen grabWindow(0) failed, trying windowHandle");
-			if (QWindow *wh = preview->windowHandle()) {
-				QScreen *s = wh->screen();
-				if (!s) s = screen;
-				QPixmap winPix = s->grabWindow(wh->winId(), globalPos.x(), globalPos.y(), preview->width(), preview->height());
-				if (!winPix.isNull()) {
-					pix = winPix;
-					obs_log(LOG_INFO, "thumbnail: captured via windowHandle %dx%d", pix.width(), pix.height());
-				}
-			}
-		}
-	}
-
-	// Fallback: QWidget::grab (for software rendered)
-	if (pix.isNull()) {
-		pix = preview->grab();
-		if (!pix.isNull()) {
-			obs_log(LOG_INFO, "thumbnail: captured via QWidget::grab %dx%d", pix.width(), pix.height());
-		}
-	}
-
-	if (pix.isNull()) {
-		obs_log(LOG_WARNING, "thumbnail: all grab methods failed");
+	QScreen *screen = QGuiApplication::primaryScreen();
+	if (!screen)
 		return {};
-	}
-
-	// Check if pix is blank (all same color) – indicates GPU preview not captured
-	QImage img = pix.toImage().scaled(16, 16, Qt::IgnoreAspectRatio, Qt::FastTransformation);
+	QPoint globalPos = preview->mapToGlobal(QPoint(0, 0));
+	QPixmap desktop = screen->grabWindow(0, globalPos.x(), globalPos.y(), preview->width(), preview->height());
+	if (desktop.isNull())
+		return {};
+	// Check if blank (all same color)
+	QImage img = desktop.toImage().scaled(16, 16, Qt::IgnoreAspectRatio, Qt::FastTransformation);
 	bool allSame = true;
 	QRgb first = img.pixel(0, 0);
 	for (int y = 0; y < img.height(); ++y) {
@@ -130,36 +102,115 @@ QString capturePreviewBase64(int maxWidth)
 				break;
 			}
 		}
-		if (!allSame) break;
+		if (!allSame)
+			break;
 	}
 	if (allSame) {
-		obs_log(LOG_WARNING, "thumbnail: captured image is blank (all same color), preview may be GPU, trying alternative");
-		// Try grabbing main window central area as last resort
-		QScreen *screen = QGuiApplication::primaryScreen();
-		if (screen) {
-			QRect mainGeo = mainWindow->geometry();
-			QPixmap mainPix = screen->grabWindow(0, mainGeo.x() + mainGeo.width()/4, mainGeo.y() + mainGeo.height()/4, mainGeo.width()/2, mainGeo.height()/2);
-			if (!mainPix.isNull() && mainPix.width() > 50) {
-				pix = mainPix;
-				obs_log(LOG_INFO, "thumbnail: fallback main window grab %dx%d", pix.width(), pix.height());
+		obs_log(LOG_INFO, "thumbnail: screen grab is blank");
+		return {};
+	}
+	obs_log(LOG_INFO, "thumbnail: screen grab %dx%d", desktop.width(), desktop.height());
+	return pixmapToBase64(desktop, maxWidth);
+}
+
+static QString captureViaScreenshotFile(int maxWidth)
+{
+	obs_source_t *sceneSource = obs_frontend_get_current_scene();
+	if (!sceneSource)
+		return {};
+	// Get screenshot folder from OBS config
+	config_t *cfg = obs_frontend_get_global_config();
+	const char *path = config_get_string(cfg, "Output", "ScreenshotPath");
+	QString screenshotDir;
+	if (path && *path)
+		screenshotDir = QString::fromUtf8(path);
+	else
+		screenshotDir = QDir::homePath() + "/Pictures";
+
+	QDir dir(screenshotDir);
+	if (!dir.exists())
+		dir.mkpath(".");
+
+	// Count files before
+	QStringList before = dir.entryList(QDir::Files, QDir::Time);
+	// Trigger OBS screenshot of scene source (saves file async)
+	obs_frontend_take_source_screenshot(sceneSource);
+	obs_source_release(sceneSource);
+
+	// Wait up to 1.5s for new file
+	QString newFile;
+	for (int i = 0; i < 15; ++i) {
+		QThread::msleep(100);
+		QCoreApplication::processEvents();
+		QStringList after = dir.entryList(QDir::Files, QDir::Time);
+		if (after.size() > before.size()) {
+			// Find newest file not in before
+			for (const QString &f : after) {
+				if (!before.contains(f)) {
+					newFile = dir.filePath(f);
+					break;
+				}
+			}
+			if (!newFile.isEmpty())
+				break;
+		}
+		// Also check for any new file by time
+		if (!after.isEmpty()) {
+			QFileInfo fi(dir.filePath(after.first()));
+			if (fi.lastModified().secsTo(QDateTime::currentDateTime()) < 2 && !before.contains(after.first())) {
+				newFile = dir.filePath(after.first());
+				break;
 			}
 		}
 	}
 
-	// Scale to maxWidth preserving aspect
-	if (pix.width() > maxWidth) {
-		pix = pix.scaledToWidth(maxWidth, Qt::SmoothTransformation);
-	}
-
-	QByteArray ba;
-	QBuffer buffer(&ba);
-	buffer.open(QIODevice::WriteOnly);
-	if (!pix.save(&buffer, "JPEG", 75)) {
-		obs_log(LOG_WARNING, "thumbnail: save to JPEG failed");
+	if (newFile.isEmpty()) {
+		obs_log(LOG_INFO, "thumbnail: screenshot file not found in %s", qPrintable(screenshotDir));
 		return {};
 	}
 
-	QString b64 = QString::fromLatin1(ba.toBase64());
-	obs_log(LOG_INFO, "thumbnail: success %dx%d -> %d bytes b64", pix.width(), pix.height(), b64.size());
-	return QString("data:image/jpeg;base64,") + b64;
+	QPixmap pix(newFile);
+	if (pix.isNull()) {
+		obs_log(LOG_WARNING, "thumbnail: failed to load screenshot %s", qPrintable(newFile));
+		return {};
+	}
+	obs_log(LOG_INFO, "thumbnail: screenshot file %s %dx%d", qPrintable(newFile), pix.width(), pix.height());
+	// Optionally delete file after reading to avoid clutter
+	// QFile::remove(newFile);
+	return pixmapToBase64(pix, maxWidth);
+}
+
+QString capturePreviewBase64(int maxWidth)
+{
+	QMainWindow *mainWindow = static_cast<QMainWindow *>(obs_frontend_get_main_window());
+	if (!mainWindow) {
+		obs_log(LOG_WARNING, "thumbnail: no main window");
+		return {};
+	}
+	QWidget *preview = findPreviewWidget(mainWindow);
+	if (!preview) {
+		obs_log(LOG_WARNING, "thumbnail: preview widget not found");
+		return {};
+	}
+
+	// Try screen grab first (fast, no file IO)
+	QString b64 = captureViaScreenGrab(preview, maxWidth);
+	if (!b64.isEmpty())
+		return b64;
+
+	// Fallback: OBS screenshot file (accurate WYSIWYG)
+	obs_log(LOG_INFO, "thumbnail: trying screenshot file fallback");
+	b64 = captureViaScreenshotFile(maxWidth);
+	if (!b64.isEmpty())
+		return b64;
+
+	// Last fallback: widget grab
+	QPixmap pix = preview->grab();
+	if (!pix.isNull()) {
+		obs_log(LOG_INFO, "thumbnail: fallback widget grab %dx%d", pix.width(), pix.height());
+		return pixmapToBase64(pix, maxWidth);
+	}
+
+	obs_log(LOG_WARNING, "thumbnail: all capture methods failed");
+	return {};
 }
