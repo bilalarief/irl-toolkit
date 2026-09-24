@@ -17,6 +17,7 @@ export function Canvas({
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [wrapSize, setWrapSize] = useState({ w: 360, h: 202 });
+  const [guides, setGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -39,7 +40,6 @@ export function Canvas({
 
   const editorCanvas = { width: wrapSize.w, height: wrapSize.h };
   const obsCanvas = { width: scene.canvasWidth, height: scene.canvasHeight };
-  const [guides, setGuides] = useState<{ x: number | null; y: number | null }>({ x: null, y: null });
 
   const handlePointerDown = (e: React.PointerEvent, item: EditorItem) => {
     e.preventDefault();
