@@ -1,8 +1,7 @@
 #pragma once
 
 #include <QString>
-
-class obs_source_t;
+#include <obs.h>
 
 // Returns base64 JPEG of OBS preview (data:image/jpeg;base64,...)
 // Empty string if capture failed

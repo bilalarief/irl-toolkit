@@ -1,6 +1,8 @@
 #include "obs/obs-thumbnail.hpp"
 
 #include <obs-frontend-api.h>
+#include <obs.h>
+#include <util/config-file.h>
 
 #include <QApplication>
 #include <QBuffer>

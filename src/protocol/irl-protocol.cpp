@@ -3,6 +3,8 @@
 #include "obs/obs-scene-service.hpp"
 #include "obs/obs-thumbnail.hpp"
 
+#include <obs.h>
+
 #include <QJsonArray>
 #include <QJsonObject>
 
