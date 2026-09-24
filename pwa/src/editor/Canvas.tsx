@@ -8,12 +8,14 @@ export function Canvas({
   onSelect,
   onMove,
   thumbnail,
+  thumbs,
 }: {
   scene: EditorScene | null;
   selectedId: number | null;
   onSelect: (id: number | null) => void;
   onMove: (id: number, x: number, y: number) => void;
   thumbnail?: string | null;
+  thumbs?: Record<number, string>;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [wrapSize, setWrapSize] = useState({ w: 360, h: 202 });
@@ -148,6 +150,7 @@ export function Canvas({
         {scene.items.map((it) => {
           const { x, y, width, height } = obsToEditor(it.x, it.y, it.width * it.scaleX, it.height * it.scaleY, obsCanvas, editorCanvas);
           const selected = selectedId === it.sceneItemId;
+          const thumb = thumbs?.[it.sceneItemId];
           return (
             <div
               key={it.sceneItemId}
@@ -158,6 +161,9 @@ export function Canvas({
                 width: Math.max(24, width),
                 height: Math.max(18, height),
                 transform: `rotate(${it.rotation}deg)`,
+                backgroundImage: thumb ? `url(${thumb})` : undefined,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
               }}
               onPointerDown={(e) => {
                 e.stopPropagation();

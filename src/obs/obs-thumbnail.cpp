@@ -180,6 +180,60 @@ static QString captureViaScreenshotFile(int maxWidth)
 	return pixmapToBase64(pix, maxWidth);
 }
 
+QString captureSourceThumbnail(obs_source_t *source, int maxWidth)
+{
+	if (!source)
+		return {};
+	// Get screenshot folder
+	config_t *cfg = obs_frontend_get_global_config();
+	const char *path = config_get_string(cfg, "Output", "ScreenshotPath");
+	QString screenshotDir;
+	if (path && *path)
+		screenshotDir = QString::fromUtf8(path);
+	else
+		screenshotDir = QDir::homePath() + "/Pictures";
+	QDir dir(screenshotDir);
+	if (!dir.exists())
+		dir.mkpath(".");
+	QStringList before = dir.entryList(QDir::Files, QDir::Time);
+	obs_frontend_take_source_screenshot(source);
+	// Wait up to 1.5s
+	QString newFile;
+	for (int i = 0; i < 15; ++i) {
+		QThread::msleep(100);
+		QCoreApplication::processEvents();
+		QStringList after = dir.entryList(QDir::Files, QDir::Time);
+		if (after.size() > before.size()) {
+			for (const QString &f : after) {
+				if (!before.contains(f)) {
+					newFile = dir.filePath(f);
+					break;
+				}
+			}
+			if (!newFile.isEmpty())
+				break;
+		}
+		if (!after.isEmpty()) {
+			QFileInfo fi(dir.filePath(after.first()));
+			if (fi.lastModified().secsTo(QDateTime::currentDateTime()) < 2 && !before.contains(after.first())) {
+				newFile = dir.filePath(after.first());
+				break;
+			}
+		}
+	}
+	if (newFile.isEmpty()) {
+		obs_log(LOG_INFO, "thumbnail: source screenshot not found for %s", obs_source_get_name(source));
+		return {};
+	}
+	QPixmap pix(newFile);
+	if (pix.isNull()) {
+		obs_log(LOG_WARNING, "thumbnail: failed to load source screenshot %s", qPrintable(newFile));
+		return {};
+	}
+	obs_log(LOG_INFO, "thumbnail: source %s screenshot %s %dx%d", obs_source_get_name(source), qPrintable(newFile), pix.width(), pix.height());
+	return pixmapToBase64(pix, maxWidth);
+}
+
 QString capturePreviewBase64(int maxWidth)
 {
 	QMainWindow *mainWindow = static_cast<QMainWindow *>(obs_frontend_get_main_window());

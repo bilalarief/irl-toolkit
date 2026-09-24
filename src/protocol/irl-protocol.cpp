@@ -112,6 +112,30 @@ QJsonObject handleMessage(const QJsonObject &req)
 		return res;
 	}
 
+	if (type == "get_thumbnails") {
+		SceneInfo info = obs_scene_service::getCurrentSceneInfo();
+		QJsonArray thumbs;
+		for (const auto &it : info.items) {
+			// Find source by name
+			obs_source_t *src = obs_get_source_by_name(it.sourceName.c_str());
+			QString data;
+			if (src) {
+				data = captureSourceThumbnail(src, 160);
+				obs_source_release(src);
+			}
+			QJsonObject obj;
+			obj["sceneItemId"] = static_cast<qint64>(it.sceneItemId);
+			obj["thumbnail"] = data;
+			thumbs.append(obj);
+		}
+		QJsonObject res;
+		res["type"] = "thumbnails";
+		res["items"] = thumbs;
+		if (req.contains("requestId"))
+			res["requestId"] = req.value("requestId");
+		return res;
+	}
+
 	// Unknown type
 	QJsonObject err;
 	err["type"] = "error";

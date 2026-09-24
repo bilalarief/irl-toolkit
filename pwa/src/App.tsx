@@ -14,37 +14,44 @@ export default function App() {
   const [wsInput, setWsInput] = useState(url);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [thumbnail, setThumbnail] = useState<string | null>(null);
+  const [thumbs, setThumbs] = useState<Record<number, string>>({});
 
   // subscribe to editor store
   useEffect(() => store.subscribe(() => force((x) => x + 1)), []);
 
-  // handle incoming scene_state / save_result / thumbnail
+  // handle incoming scene_state / save_result / thumbnail / thumbnails
   useEffect(() => {
     if (!lastMessage) return;
     if (lastMessage.type === 'scene_state') {
       store.setScene(lastMessage.scene);
       setSceneTick((v) => v + 1);
-      // request thumbnail after scene load
+      // request thumbnails after scene load (full + per-source)
       send({ type: 'get_thumbnail', requestId: `thumb-${Date.now()}` } as const);
+      send({ type: 'get_thumbnails', requestId: `thumbs-${Date.now()}` } as const);
     } else if (lastMessage.type === 'save_result') {
       if (lastMessage.success) {
         if (lastMessage.scene) {
           store.setScene(lastMessage.scene);
           setSceneTick((v) => v + 1);
         } else if (store.current) {
-          // fallback: update original from current
           store.setScene(store.current);
         }
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus('idle'), 2000);
-        // refresh thumbnail after save
         send({ type: 'get_thumbnail', requestId: `thumb-${Date.now()}` } as const);
+        send({ type: 'get_thumbnails', requestId: `thumbs-${Date.now()}` } as const);
       } else {
         setSaveStatus('error');
         alert(`Save failed: ${lastMessage.error ?? 'unknown'}`);
       }
     } else if (lastMessage.type === 'thumbnail') {
       if (lastMessage.data) setThumbnail(lastMessage.data);
+    } else if (lastMessage.type === 'thumbnails') {
+      const map: Record<number, string> = {};
+      for (const it of lastMessage.items) {
+        if (it.thumbnail) map[it.sceneItemId] = it.thumbnail;
+      }
+      setThumbs(map);
     }
   }, [lastMessage, send]);
 
@@ -85,13 +92,19 @@ export default function App() {
     send({ type: 'get_thumbnail', requestId: `thumb-${Date.now()}` } as const);
   };
 
-  // periodic thumbnail refresh (near-live ~1.2 fps)
+  // periodic thumbnail refresh (near-live ~1.2 fps) + per-source every 3s
   useEffect(() => {
     if (status !== 'connected') return;
     const id = window.setInterval(() => {
       send({ type: 'get_thumbnail', requestId: `thumb-${Date.now()}` } as const);
     }, 800);
-    return () => window.clearInterval(id);
+    const id2 = window.setInterval(() => {
+      send({ type: 'get_thumbnails', requestId: `thumbs-${Date.now()}` } as const);
+    }, 3000);
+    return () => {
+      window.clearInterval(id);
+      window.clearInterval(id2);
+    };
   }, [status, send]);
 
   return (
@@ -141,7 +154,7 @@ export default function App() {
         <p className="section-title">SCENE</p>
         <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{scene ? scene.name : '— not loaded —'}</div>
 
-        <Canvas scene={scene} selectedId={selectedId} onSelect={setSelectedId} onMove={handleMove} thumbnail={thumbnail} />
+        <Canvas scene={scene} selectedId={selectedId} onSelect={setSelectedId} onMove={handleMove} thumbnail={thumbnail} thumbs={thumbs} />
 
         {scene && (
           <div style={{ marginTop: 12 }} className="item-list">
