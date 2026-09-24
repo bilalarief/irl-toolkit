@@ -4,9 +4,12 @@
 
 #include <QApplication>
 #include <QBuffer>
+#include <QGuiApplication>
 #include <QMainWindow>
 #include <QPixmap>
+#include <QScreen>
 #include <QWidget>
+#include <QWindow>
 
 #include <obs-module.h>
 #include <plugin-support.h>
@@ -16,34 +19,53 @@ static QWidget *findPreviewWidget(QMainWindow *mainWindow)
 	if (!mainWindow)
 		return nullptr;
 
-	// Try common object names
-	const QStringList names = {"preview", "previewDisplay", "OBSBasicPreview", "obsPreview"};
-	for (const QString &n : names) {
-		if (QWidget *w = mainWindow->findChild<QWidget *>(n))
-			return w;
-	}
-
-	// Fallback: find largest center widget that looks like preview (heuristic)
-	QWidget *best = nullptr;
-	int bestArea = 0;
-	const auto widgets = mainWindow->findChildren<QWidget *>();
-	for (QWidget *w : widgets) {
-		if (!w->isVisible())
-			continue;
-		// Preview is typically a large widget in central area
-		QRect g = w->geometry();
-		int area = g.width() * g.height();
-		// Filter small widgets
-		if (area < 50 * 50)
-			continue;
-		// Must be inside central widget area
-		if (area > bestArea) {
-			// Heuristic: preview has no layout children with many buttons
-			best = w;
-			bestArea = area;
+	// 1. Try OBSQTDisplay class (actual preview is OBSQTDisplay)
+	for (QWidget *w : mainWindow->findChildren<QWidget *>()) {
+		const char *cls = w->metaObject()->className();
+		QString cn = QString::fromUtf8(cls);
+		if (cn.contains("Display", Qt::CaseInsensitive) || cn.contains("Preview", Qt::CaseInsensitive)) {
+			if (w->isVisible() && w->width() > 100 && w->height() > 100) {
+				obs_log(LOG_INFO, "thumbnail: found candidate %s objectName='%s' %dx%d", qPrintable(cn),
+					qPrintable(w->objectName()), w->width(), w->height());
+				return w;
+			}
 		}
 	}
-	return best;
+
+	// 2. Try common object names
+	const QStringList names = {"preview", "previewDisplay", "OBSBasicPreview", "obsPreview", "qtDisplay"};
+	for (const QString &n : names) {
+		if (QWidget *w = mainWindow->findChild<QWidget *>(n)) {
+			obs_log(LOG_INFO, "thumbnail: found by name %s", qPrintable(n));
+			return w;
+		}
+	}
+
+	// 3. Fallback: centralWidget is most likely to contain preview
+	if (QWidget *central = mainWindow->centralWidget()) {
+		// preview is usually the largest child of centralWidget
+		QWidget *best = nullptr;
+		int bestArea = 0;
+		for (QWidget *w : central->findChildren<QWidget *>()) {
+			if (!w->isVisible())
+				continue;
+			int area = w->width() * w->height();
+			if (area < 100 * 100)
+				continue;
+			if (area > bestArea) {
+				best = w;
+				bestArea = area;
+			}
+		}
+		if (best) {
+			obs_log(LOG_INFO, "thumbnail: fallback central %s %dx%d", qPrintable(best->metaObject()->className()),
+				best->width(), best->height());
+			return best;
+		}
+		return central;
+	}
+
+	return nullptr;
 }
 
 QString capturePreviewBase64(int maxWidth)
@@ -60,12 +82,28 @@ QString capturePreviewBase64(int maxWidth)
 		return {};
 	}
 
-	// Grab widget
-	QPixmap pix = preview->grab();
+	// Try screen grab for GPU preview (more reliable than QWidget::grab)
+	QPixmap pix;
+	if (QWindow *wh = preview->windowHandle()) {
+		QScreen *screen = wh->screen();
+		if (!screen)
+			screen = QGuiApplication::primaryScreen();
+		if (screen) {
+			// Map preview widget geometry to global
+			QPoint globalPos = preview->mapToGlobal(QPoint(0, 0));
+			pix = screen->grabWindow(wh->winId(), globalPos.x(), globalPos.y(), preview->width(), preview->height());
+		}
+	}
 	if (pix.isNull()) {
-		obs_log(LOG_WARNING, "thumbnail: grab returned null");
+		// Fallback to widget grab
+		pix = preview->grab();
+	}
+	if (pix.isNull()) {
+		obs_log(LOG_WARNING, "thumbnail: grab returned null (both screen and widget)");
 		return {};
 	}
+	obs_log(LOG_INFO, "thumbnail: captured %dx%d from %s", pix.width(), pix.height(),
+		qPrintable(preview->metaObject()->className()));
 
 	// Scale to maxWidth preserving aspect
 	if (pix.width() > maxWidth) {

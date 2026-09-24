@@ -85,12 +85,12 @@ export default function App() {
     send({ type: 'get_thumbnail', requestId: `thumb-${Date.now()}` } as const);
   };
 
-  // periodic thumbnail refresh
+  // periodic thumbnail refresh (near-live ~1.2 fps)
   useEffect(() => {
     if (status !== 'connected') return;
     const id = window.setInterval(() => {
       send({ type: 'get_thumbnail', requestId: `thumb-${Date.now()}` } as const);
-    }, 4000);
+    }, 800);
     return () => window.clearInterval(id);
   }, [status, send]);
 
