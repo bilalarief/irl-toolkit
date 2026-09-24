@@ -3,6 +3,9 @@
 #include <obs-frontend-api.h>
 #include <obs.h>
 
+#include <QJsonArray>
+#include <QJsonObject>
+
 namespace obs_scene_service {
 
 bool getCanvasInfo(CanvasInfo &out)
