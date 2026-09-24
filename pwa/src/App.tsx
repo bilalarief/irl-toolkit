@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useWebSocket } from './connection/useWebSocket';
 import { Canvas } from './editor/Canvas';
 import type { EditorScene } from './protocol/types';
@@ -8,7 +8,7 @@ const store = createEditorStore();
 
 export default function App() {
   const { status, lastMessage, send, connect, disconnect, url, setUrl } = useWebSocket();
-  const [sceneTick, setSceneTick] = useState(0);
+  const [, setSceneTick] = useState(0);
   const [, force] = useState(0);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [wsInput, setWsInput] = useState(url);
@@ -43,7 +43,8 @@ export default function App() {
 
   const scene: EditorScene | null = store.current;
 
-  const hasChanges = useMemo(() => store.hasChanges(), [sceneTick, scene]);
+  // Don't memoize with stale scene ref – recompute every render after force tick
+  const hasChanges = store.hasChanges();
 
   const handleMove = (id: number, x: number, y: number) => {
     store.updateItem(id, { x, y });
