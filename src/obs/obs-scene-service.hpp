@@ -4,6 +4,9 @@
 #include <string>
 #include <vector>
 
+#include <QJsonArray>
+#include <QString>
+
 struct CanvasInfo {
 	uint32_t width = 0;
 	uint32_t height = 0;
@@ -33,5 +36,7 @@ namespace obs_scene_service {
 
 bool getCanvasInfo(CanvasInfo &out);
 SceneInfo getCurrentSceneInfo();
+// Apply changes from PWA save_changes. Returns true if all applied, false if any failed.
+bool applySceneChanges(const QJsonArray &changes, QString &error);
 
 } // namespace obs_scene_service

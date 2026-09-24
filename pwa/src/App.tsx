@@ -12,15 +12,32 @@ export default function App() {
   const [, force] = useState(0);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [wsInput, setWsInput] = useState(url);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   // subscribe to editor store
   useEffect(() => store.subscribe(() => force((x) => x + 1)), []);
 
-  // handle incoming scene_state
+  // handle incoming scene_state / save_result
   useEffect(() => {
-    if (lastMessage?.type === 'scene_state') {
+    if (!lastMessage) return;
+    if (lastMessage.type === 'scene_state') {
       store.setScene(lastMessage.scene);
       setSceneTick((v) => v + 1);
+    } else if (lastMessage.type === 'save_result') {
+      if (lastMessage.success) {
+        if (lastMessage.scene) {
+          store.setScene(lastMessage.scene);
+          setSceneTick((v) => v + 1);
+        } else if (store.current) {
+          // fallback: update original from current
+          store.setScene(store.current);
+        }
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus('idle'), 2000);
+      } else {
+        setSaveStatus('error');
+        alert(`Save failed: ${lastMessage.error ?? 'unknown'}`);
+      }
     }
   }, [lastMessage]);
 
@@ -42,14 +59,17 @@ export default function App() {
 
   const handleSave = () => {
     const diff = store.computeDiff();
-    // eslint-disable-next-line no-console
-    console.log('Save diff', diff);
-    // For now just log; future: send save_changes to plugin
-    // After save, update original
-    if (store.current && store.original) {
-      store.original = structuredClone(store.current);
+    if (diff.length === 0) return;
+    // Convert {sceneItemId, patch} to flat changes for plugin
+    const changes = diff.map((d) => ({ sceneItemId: d.sceneItemId, ...d.patch }));
+    const ok = send({ type: 'save_changes', changes, requestId: `save-${Date.now()}` } as const);
+    if (!ok) {
+      alert('Not connected to OBS plugin');
+      return;
     }
-    alert(`Save: ${diff.length} item(s) changed\n` + JSON.stringify(diff, null, 2));
+    setSaveStatus('saving');
+    // eslint-disable-next-line no-console
+    console.log('Save diff', changes);
   };
 
   const handleRefresh = () => {
@@ -142,8 +162,8 @@ export default function App() {
         <button className="btn btn-ghost" onClick={() => alert('+ Overlay — coming soon: camera/image/text/browser')}>
           + Overlay
         </button>
-        <button className="btn btn-primary" onClick={handleSave} disabled={!hasChanges}>
-          SAVE
+        <button className="btn btn-primary" onClick={handleSave} disabled={!hasChanges || saveStatus === 'saving' || status !== 'connected'}>
+          {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved!' : 'SAVE'}
         </button>
       </div>
 

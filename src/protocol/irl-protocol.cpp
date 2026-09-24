@@ -52,6 +52,52 @@ QJsonObject handleMessage(const QJsonObject &req)
 		return res;
 	}
 
+	if (type == "save_changes") {
+		QJsonArray changes = req.value("changes").toArray();
+		// Also support flat diff array as used by PWA: [{sceneItemId, patch}]
+		if (changes.isEmpty() && req.contains("diff")) {
+			changes = req.value("diff").toArray();
+		}
+		QString error;
+		bool ok = obs_scene_service::applySceneChanges(changes, error);
+
+		QJsonObject res;
+		res["type"] = "save_result";
+		res["success"] = ok;
+		if (!error.isEmpty())
+			res["error"] = error;
+		if (req.contains("requestId"))
+			res["requestId"] = req.value("requestId");
+
+		// Include fresh scene state on success for PWA to update original
+		if (ok) {
+			SceneInfo info = obs_scene_service::getCurrentSceneInfo();
+			QJsonObject scene;
+			scene["name"] = QString::fromUtf8(info.name.c_str());
+			scene["canvasWidth"] = static_cast<int>(info.canvas.width);
+			scene["canvasHeight"] = static_cast<int>(info.canvas.height);
+			QJsonArray items;
+			for (const auto &it : info.items) {
+				QJsonObject obj;
+				obj["sceneItemId"] = static_cast<qint64>(it.sceneItemId);
+				obj["sourceName"] = QString::fromUtf8(it.sourceName.c_str());
+				obj["sourceType"] = QString::fromUtf8(it.sourceType.c_str());
+				obj["x"] = it.x;
+				obj["y"] = it.y;
+				obj["width"] = it.width;
+				obj["height"] = it.height;
+				obj["scaleX"] = it.scaleX;
+				obj["scaleY"] = it.scaleY;
+				obj["rotation"] = it.rotation;
+				obj["visible"] = it.visible;
+				items.append(obj);
+			}
+			scene["items"] = items;
+			res["scene"] = scene;
+		}
+		return res;
+	}
+
 	// Unknown type
 	QJsonObject err;
 	err["type"] = "error";

@@ -70,4 +70,125 @@ SceneInfo getCurrentSceneInfo()
 	return result;
 }
 
+bool applySceneChanges(const QJsonArray &changes, QString &error)
+{
+	obs_source_t *curSceneSource = obs_frontend_get_current_scene();
+	if (!curSceneSource) {
+		error = "no current scene";
+		return false;
+	}
+
+	obs_scene_t *scene = obs_scene_from_source(curSceneSource);
+	if (!scene) {
+		obs_source_release(curSceneSource);
+		error = "current source is not a scene";
+		return false;
+	}
+
+	bool allOk = true;
+
+	for (const auto &val : changes) {
+		if (!val.isObject())
+			continue;
+		QJsonObject obj = val.toObject();
+
+		// sceneItemId may be in top level or inside transform
+		qint64 id = 0;
+		if (obj.contains("sceneItemId"))
+			id = obj.value("sceneItemId").toVariant().toLongLong();
+		else if (obj.contains("id"))
+			id = obj.value("id").toVariant().toLongLong();
+		if (id == 0) {
+			error = "missing sceneItemId";
+			allOk = false;
+			continue;
+		}
+
+		QJsonObject patch;
+		if (obj.contains("transform") && obj.value("transform").isObject())
+			patch = obj.value("transform").toObject();
+		else if (obj.contains("patch") && obj.value("patch").isObject())
+			patch = obj.value("patch").toObject();
+		else
+			patch = obj; // flat
+
+		// Find item by id
+		struct FindCtx {
+			qint64 id;
+			obs_sceneitem_t *found = nullptr;
+		} ctx{id, nullptr};
+
+		obs_scene_enum_items(
+			scene,
+			[](obs_scene_t *, obs_sceneitem_t *item, void *param) {
+				auto *c = static_cast<FindCtx *>(param);
+				if (obs_sceneitem_get_id(item) == c->id) {
+					c->found = item;
+					return false; // stop
+				}
+				return true;
+			},
+			&ctx);
+
+		if (!ctx.found) {
+			error = QString("item %1 not found").arg(id);
+			allOk = false;
+			continue;
+		}
+
+		obs_sceneitem_t *item = ctx.found;
+
+		if (patch.contains("x") || patch.contains("y")) {
+			struct vec2 pos;
+			obs_sceneitem_get_pos(item, &pos);
+			if (patch.contains("x"))
+				pos.x = float(patch.value("x").toDouble(pos.x));
+			if (patch.contains("y"))
+				pos.y = float(patch.value("y").toDouble(pos.y));
+			obs_sceneitem_set_pos(item, &pos);
+		}
+		if (patch.contains("scaleX") || patch.contains("scaleY")) {
+			struct vec2 scale;
+			obs_sceneitem_get_scale(item, &scale);
+			if (patch.contains("scaleX"))
+				scale.x = float(patch.value("scaleX").toDouble(scale.x));
+			if (patch.contains("scaleY"))
+				scale.y = float(patch.value("scaleY").toDouble(scale.y));
+			obs_sceneitem_set_scale(item, &scale);
+		}
+		if (patch.contains("rotation")) {
+			float rot = float(patch.value("rotation").toDouble(obs_sceneitem_get_rot(item)));
+			obs_sceneitem_set_rot(item, rot);
+		}
+		if (patch.contains("visible")) {
+			bool vis = patch.value("visible").toBool(obs_sceneitem_visible(item));
+			obs_sceneitem_set_visible(item, vis);
+		}
+		// width/height changes are applied as scale adjustment if source size known
+		if (patch.contains("width") || patch.contains("height")) {
+			obs_source_t *src = obs_sceneitem_get_source(item);
+			if (src) {
+				uint32_t srcW = obs_source_get_width(src);
+				uint32_t srcH = obs_source_get_height(src);
+				if (srcW && srcH) {
+					struct vec2 scale;
+					obs_sceneitem_get_scale(item, &scale);
+					if (patch.contains("width")) {
+						float newW = float(patch.value("width").toDouble(srcW * scale.x));
+						scale.x = newW / float(srcW);
+					}
+					if (patch.contains("height")) {
+						float newH = float(patch.value("height").toDouble(srcH * scale.y));
+						scale.y = newH / float(srcH);
+					}
+					obs_sceneitem_set_scale(item, &scale);
+				}
+			}
+		}
+	}
+
+	obs_source_release(curSceneSource);
+	return allOk;
+}
+
 } // namespace obs_scene_service

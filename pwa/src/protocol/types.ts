@@ -1,6 +1,6 @@
 // Transport-independent protocol (matches plugin/src/protocol/irl-protocol)
 
-export type MessageType = 'ping' | 'pong' | 'get_scene' | 'scene_state' | 'error';
+export type MessageType = 'ping' | 'pong' | 'get_scene' | 'scene_state' | 'save_changes' | 'save_result' | 'error';
 
 export interface PingMessage {
   type: 'ping';
@@ -38,10 +38,22 @@ export interface SceneStateMessage {
   scene: EditorScene;
   requestId?: string;
 }
+export interface SaveChangesMessage {
+  type: 'save_changes';
+  changes: Array<{ sceneItemId: number } & Partial<EditorItem>>;
+  requestId?: string;
+}
+export interface SaveResultMessage {
+  type: 'save_result';
+  success: boolean;
+  error?: string;
+  scene?: EditorScene;
+  requestId?: string;
+}
 export interface ErrorMessage {
   type: 'error';
   message: string;
   requestId?: string;
 }
-export type IncomingMessage = PongMessage | SceneStateMessage | ErrorMessage;
-export type OutgoingMessage = PingMessage | GetSceneMessage;
+export type IncomingMessage = PongMessage | SceneStateMessage | SaveResultMessage | ErrorMessage;
+export type OutgoingMessage = PingMessage | GetSceneMessage | SaveChangesMessage;
