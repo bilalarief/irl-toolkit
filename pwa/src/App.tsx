@@ -15,21 +15,18 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [drawer, setDrawer] = useState<DrawerType>('none');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
-  const [thumbs, setThumbs] = useState<Record<number, string>>({});
 
   // Subscribe to editor store changes
   useEffect(() => store.subscribe(() => force((x) => x + 1)), []);
 
   // Handle incoming WebSocket messages.
-  // Per-source thumbnails: requested on connect, after save, and via
-  // Update Scene. No polling. Plugin screenshots each source, stores it in
-  // its local thumbs folder, (dummy-)uploads it, and returns image data.
+  // Thumbnails removed for now — canvas shows labeled border boxes positioned
+  // from real OBS scene data.
   useEffect(() => {
     if (!lastMessage) return;
     if (lastMessage.type === 'scene_state') {
       store.setScene(lastMessage.scene);
       setSceneTick((v) => v + 1);
-      send({ type: 'get_thumbnails', requestId: `thumbs-${Date.now()}` } as const);
     } else if (lastMessage.type === 'save_result') {
       if (lastMessage.success) {
         if (lastMessage.scene) {
@@ -40,19 +37,12 @@ export default function App() {
         }
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus('idle'), 2000);
-        send({ type: 'get_thumbnails', requestId: `thumbs-${Date.now()}` } as const);
       } else {
         setSaveStatus('error');
         alert(`Save failed: ${lastMessage.error ?? 'unknown'}`);
       }
-    } else if (lastMessage.type === 'thumbnails') {
-      const map: Record<number, string> = {};
-      for (const it of lastMessage.items) {
-        if (it.thumbnail) map[it.sceneItemId] = it.thumbnail;
-      }
-      setThumbs(map);
     }
-  }, [lastMessage, send]);
+  }, [lastMessage]);
 
   const scene: EditorScene | null = store.current;
   const selectedItem: EditorItem | null = scene?.items.find((i) => i.sceneItemId === selectedId) ?? null;
@@ -101,15 +91,12 @@ export default function App() {
     force((v) => v + 1);
   };
 
-  const handleResetRotation = (id: number) => {
-    store.updateItem(id, { rotation: 0 });
-    force((v) => v + 1);
-  };
-
   const handleSave = () => {
     const diff = store.computeDiff();
     if (diff.length === 0) return;
-    const changes = diff.map((d) => ({ sceneItemId: d.sceneItemId, ...d.patch }));
+    const changes = diff.map((d) =>
+      d.deleted ? { sceneItemId: d.sceneItemId, deleted: true } : { sceneItemId: d.sceneItemId, ...d.patch }
+    );
     const ok = send({ type: 'save_changes', changes, requestId: `save-${Date.now()}` } as const);
     if (!ok) {
       alert('Not connected to OBS plugin');
@@ -120,7 +107,6 @@ export default function App() {
 
   const handleRefresh = () => {
     send({ type: 'get_scene', requestId: `r-${Date.now()}` });
-    send({ type: 'get_thumbnails', requestId: `thumbs-${Date.now()}` } as const);
   };
 
   const handleConnectUrl = (newUrl: string) => {
@@ -191,8 +177,6 @@ export default function App() {
               setDrawer('edit_overlay');
             }}
             onDelete={handleDelete}
-            onResetRotation={handleResetRotation}
-            thumbs={thumbs}
           />
         </div>
 

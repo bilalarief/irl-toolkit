@@ -40,7 +40,7 @@ export interface SceneStateMessage {
 }
 export interface SaveChangesMessage {
   type: 'save_changes';
-  changes: Array<{ sceneItemId: number } & Partial<EditorItem>>;
+  changes: Array<{ sceneItemId: number; deleted?: boolean } & Partial<EditorItem>>;
   requestId?: string;
 }
 export interface SaveResultMessage {

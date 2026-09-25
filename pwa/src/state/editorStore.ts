@@ -3,6 +3,12 @@ import type { EditorScene, EditorItem } from '../protocol/types';
 // Local editor state: original + current (phase 9)
 // Do NOT modify OBS directly while dragging; only on Save
 
+export interface SceneDiff {
+  sceneItemId: number;
+  patch: Partial<EditorItem>;
+  deleted?: boolean;
+}
+
 export interface EditorStore {
   original: EditorScene | null;
   current: EditorScene | null;
@@ -10,7 +16,7 @@ export interface EditorStore {
   updateItem(id: number, patch: Partial<EditorItem>): void;
   hasChanges(): boolean;
   discard(): void;
-  computeDiff(): { sceneItemId: number; patch: Partial<EditorItem> }[];
+  computeDiff(): SceneDiff[];
 }
 
 export function createEditorStore(): EditorStore & { subscribe: (cb: () => void) => () => void } {
@@ -48,7 +54,13 @@ export function createEditorStore(): EditorStore & { subscribe: (cb: () => void)
     },
     computeDiff() {
       if (!original || !current) return [];
-      const diffs: { sceneItemId: number; patch: Partial<EditorItem> }[] = [];
+      const diffs: SceneDiff[] = [];
+      // Deleted: in original but missing from current
+      for (const orig of original.items) {
+        if (!current.items.some((i) => i.sceneItemId === orig.sceneItemId)) {
+          diffs.push({ sceneItemId: orig.sceneItemId, patch: {}, deleted: true });
+        }
+      }
       for (const cur of current.items) {
         const orig = original.items.find((o) => o.sceneItemId === cur.sceneItemId);
         if (!orig) continue;

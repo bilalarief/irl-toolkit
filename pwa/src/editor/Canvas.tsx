@@ -9,8 +9,6 @@ interface CanvasProps {
   onMove: (id: number, x: number, y: number) => void;
   onEdit: (id: number) => void;
   onDelete: (id: number) => void;
-  onResetRotation: (id: number) => void;
-  thumbs?: Record<number, string>;
 }
 
 export function Canvas({
@@ -20,8 +18,6 @@ export function Canvas({
   onMove,
   onEdit,
   onDelete,
-  onResetRotation,
-  thumbs,
 }: CanvasProps) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [wrapSize, setWrapSize] = useState({ w: 844, h: 390 });
@@ -164,7 +160,6 @@ export function Canvas({
       {scene?.items.map((it) => {
         const { x, y, width, height } = obsToEditor(it.x, it.y, it.width * it.scaleX, it.height * it.scaleY, obsCanvas, editorCanvas);
         const isSelected = selectedId === it.sceneItemId;
-        const thumb = thumbs?.[it.sceneItemId];
 
         return (
           <div
@@ -184,9 +179,6 @@ export function Canvas({
               opacity: it.visible ? 1 : 0.35,
               border: isSelected ? '2px solid #fac800' : '1px solid rgba(255,255,255,0.2)',
               backgroundColor: isSelected ? 'rgba(250, 200, 0, 0.08)' : 'rgba(0,0,0,0.18)',
-              backgroundImage: thumb ? `url(${thumb})` : undefined,
-              backgroundSize: 'cover',
-              backgroundPosition: 'center',
               boxSizing: 'border-box',
               cursor: 'grab',
               zIndex: isSelected ? 20 : 5,
@@ -237,7 +229,7 @@ export function Canvas({
       {/* Selected Item Corner Handles & Floating Toolbar (toolbar pinned inside canvas) */}
       {selectedItem && selectedCoords && (() => {
         const TOOLBAR_W = 38;
-        const TOOLBAR_H = 168;
+        const TOOLBAR_H = 128;
         const selW = Math.max(28, selectedCoords.width);
         const selH = Math.max(24, selectedCoords.height);
         // Prefer right side, else left — then hard-clamp into canvas so
@@ -319,19 +311,6 @@ export function Canvas({
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1c1c1e" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="3 6 5 6 21 6" />
                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-              </svg>
-            </button>
-
-            {/* Rotate / Reset */}
-            <button
-              type="button"
-              title="Reset Rotation"
-              onClick={() => onResetRotation(selectedItem.sceneItemId)}
-              style={{ background: 'none', border: 'none', padding: 4, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1c1c1e" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-                <path d="M3 3v5h5" />
               </svg>
             </button>
 

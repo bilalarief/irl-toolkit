@@ -142,6 +142,12 @@ bool applySceneChanges(const QJsonArray &changes, QString &error)
 
 		obs_sceneitem_t *item = ctx.found;
 
+		// Deletion: remove the item from the scene (source itself is kept)
+		if (obj.value("deleted").toBool(false)) {
+			obs_sceneitem_remove(item);
+			continue;
+		}
+
 		if (patch.contains("x") || patch.contains("y")) {
 			struct vec2 pos;
 			obs_sceneitem_get_pos(item, &pos);
