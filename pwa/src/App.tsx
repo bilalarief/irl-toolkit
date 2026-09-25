@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useWebSocket } from './connection/useWebSocket';
+import { PairingScreen } from './connection/PairingScreen';
 import { Canvas } from './editor/Canvas';
-import type { EditorScene } from './protocol/types';
+import { Drawers, type DrawerType } from './editor/Drawers';
+import type { EditorScene, EditorItem } from './protocol/types';
 import { createEditorStore } from './state/editorStore';
 
 const store = createEditorStore();
@@ -11,22 +13,22 @@ export default function App() {
   const [, setSceneTick] = useState(0);
   const [, force] = useState(0);
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [wsInput, setWsInput] = useState(url);
+  const [drawer, setDrawer] = useState<DrawerType>('none');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
-  const [thumbnail, setThumbnail] = useState<string | null>(null);
   const [thumbs, setThumbs] = useState<Record<number, string>>({});
 
-  // subscribe to editor store
+  // Subscribe to editor store changes
   useEffect(() => store.subscribe(() => force((x) => x + 1)), []);
 
-  // handle incoming scene_state / save_result / thumbnail / thumbnails
+  // Handle incoming WebSocket messages.
+  // Per-source thumbnails: requested on connect, after save, and via
+  // Update Scene. No polling. Plugin screenshots each source, stores it in
+  // its local thumbs folder, (dummy-)uploads it, and returns image data.
   useEffect(() => {
     if (!lastMessage) return;
     if (lastMessage.type === 'scene_state') {
       store.setScene(lastMessage.scene);
       setSceneTick((v) => v + 1);
-      // request thumbnails after scene load (full + per-source)
-      send({ type: 'get_thumbnail', requestId: `thumb-${Date.now()}` } as const);
       send({ type: 'get_thumbnails', requestId: `thumbs-${Date.now()}` } as const);
     } else if (lastMessage.type === 'save_result') {
       if (lastMessage.success) {
@@ -38,14 +40,11 @@ export default function App() {
         }
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus('idle'), 2000);
-        send({ type: 'get_thumbnail', requestId: `thumb-${Date.now()}` } as const);
         send({ type: 'get_thumbnails', requestId: `thumbs-${Date.now()}` } as const);
       } else {
         setSaveStatus('error');
         alert(`Save failed: ${lastMessage.error ?? 'unknown'}`);
       }
-    } else if (lastMessage.type === 'thumbnail') {
-      if (lastMessage.data) setThumbnail(lastMessage.data);
     } else if (lastMessage.type === 'thumbnails') {
       const map: Record<number, string> = {};
       for (const it of lastMessage.items) {
@@ -56,8 +55,7 @@ export default function App() {
   }, [lastMessage, send]);
 
   const scene: EditorScene | null = store.current;
-
-  // Don't memoize with stale scene ref – recompute every render after force tick
+  const selectedItem: EditorItem | null = scene?.items.find((i) => i.sceneItemId === selectedId) ?? null;
   const hasChanges = store.hasChanges();
 
   const handleMove = (id: number, x: number, y: number) => {
@@ -65,17 +63,52 @@ export default function App() {
     force((v) => v + 1);
   };
 
-  const handleDelete = () => {
-    if (selectedId == null || !store.current) return;
-    store.current.items = store.current.items.filter((i) => i.sceneItemId !== selectedId);
-    setSelectedId(null);
+  const handleDelete = (id: number) => {
+    if (!store.current) return;
+    store.current.items = store.current.items.filter((i) => i.sceneItemId !== id);
+    if (selectedId === id) setSelectedId(null);
+    force((v) => v + 1);
+  };
+
+  const handleToggleVisible = (id: number, visible: boolean) => {
+    store.updateItem(id, { visible });
+    force((v) => v + 1);
+  };
+
+  const handleUpdateItem = (id: number, patch: Partial<EditorItem>) => {
+    store.updateItem(id, patch);
+    force((v) => v + 1);
+  };
+
+  const handleAddItem = (name: string, width: number, height: number) => {
+    if (!store.current) return;
+    const newId = Math.max(0, ...store.current.items.map((i) => i.sceneItemId)) + 1;
+    const newItem: EditorItem = {
+      sceneItemId: newId,
+      sourceName: name,
+      sourceType: 'browser_source',
+      x: 100,
+      y: 100,
+      width,
+      height,
+      scaleX: 1,
+      scaleY: 1,
+      rotation: 0,
+      visible: true,
+    };
+    store.current.items.push(newItem);
+    setSelectedId(newId);
+    force((v) => v + 1);
+  };
+
+  const handleResetRotation = (id: number) => {
+    store.updateItem(id, { rotation: 0 });
     force((v) => v + 1);
   };
 
   const handleSave = () => {
     const diff = store.computeDiff();
     if (diff.length === 0) return;
-    // Convert {sceneItemId, patch} to flat changes for plugin
     const changes = diff.map((d) => ({ sceneItemId: d.sceneItemId, ...d.patch }));
     const ok = send({ type: 'save_changes', changes, requestId: `save-${Date.now()}` } as const);
     if (!ok) {
@@ -83,126 +116,172 @@ export default function App() {
       return;
     }
     setSaveStatus('saving');
-    // eslint-disable-next-line no-console
-    console.log('Save diff', changes);
   };
 
   const handleRefresh = () => {
     send({ type: 'get_scene', requestId: `r-${Date.now()}` });
-    send({ type: 'get_thumbnail', requestId: `thumb-${Date.now()}` } as const);
+    send({ type: 'get_thumbnails', requestId: `thumbs-${Date.now()}` } as const);
   };
 
-  // periodic thumbnail refresh (near-live ~1.2 fps) + per-source every 3s
-  useEffect(() => {
-    if (status !== 'connected') return;
-    const id = window.setInterval(() => {
-      send({ type: 'get_thumbnail', requestId: `thumb-${Date.now()}` } as const);
-    }, 800);
-    const id2 = window.setInterval(() => {
-      send({ type: 'get_thumbnails', requestId: `thumbs-${Date.now()}` } as const);
-    }, 3000);
-    return () => {
-      window.clearInterval(id);
-      window.clearInterval(id2);
-    };
-  }, [status, send]);
+  const handleConnectUrl = (newUrl: string) => {
+    setUrl(newUrl);
+    disconnect();
+    setTimeout(connect, 100);
+  };
 
+  const handleDisconnect = () => {
+    disconnect();
+    setDrawer('none');
+    setSelectedId(null);
+  };
+
+  // If disconnected or connecting, display the full portrait pairing screen
+  if (status !== 'connected') {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100%', minHeight: '100vh', backgroundColor: '#0b0b0c' }}>
+        <PairingScreen onConnect={handleConnectUrl} status={status} currentUrl={url} />
+      </div>
+    );
+  }
+
+  // When connected, display the Visual Canvas Editor (Landscape Figma UI)
   return (
-    <div className="app">
-      <header className="header">
-        <div className="brand">IRL TOOLKIT</div>
-        <div className={`conn ${status}`}>
-          <span className="dot" /> {status}
+    <div
+      style={{
+        margin: 0,
+        padding: 0,
+        width: '100vw',
+        height: '100vh',
+        backgroundColor: '#0a0a0c',
+        fontFamily: "'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif",
+        color: '#fff',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        overflow: 'hidden',
+        WebkitFontSmoothing: 'antialiased',
+      }}
+    >
+      {/* 844px x 390px Viewport Frame */}
+      <div
+        style={{
+          width: 'min(844px, 100vw)',
+          height: 'min(390px, 100vh)',
+          position: 'relative',
+          overflow: 'hidden',
+          backgroundColor: '#111',
+          boxShadow: '0 0 60px rgba(0,0,0,0.95)',
+        }}
+      >
+        {/* Ambient Room backdrop */}
+        <div style={{ position: 'absolute', inset: 0, zIndex: 1, overflow: 'hidden' }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(circle at 50% 40%, #2f343b 0%, #1c1e24 45%, #101115 85%, #08090b 100%)' }} />
+          <div style={{ position: 'absolute', inset: 0, boxShadow: 'inset 0 0 90px rgba(0,0,0,0.85)', pointerEvents: 'none' }} />
         </div>
-      </header>
 
-      {/* Connection */}
-      <div className="section">
-        <p className="section-title">PHONE → OBS</p>
-        <div className="card">
-          <div style={{ fontSize: 13, color: '#d1d5db', marginBottom: 8, fontFamily: 'monospace' }}>{url}</div>
-          <div className="row">
-            <input className="input" value={wsInput} onChange={(e) => setWsInput(e.target.value)} placeholder="ws://host:8087" />
+        {/* Interactive Canvas — labeled boxes positioned from OBS scene data */}
+        <div style={{ position: 'absolute', inset: 0, zIndex: 10 }}>
+          <Canvas
+            scene={scene}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onMove={handleMove}
+            onEdit={(id) => {
+              setSelectedId(id);
+              setDrawer('edit_overlay');
+            }}
+            onDelete={handleDelete}
+            onResetRotation={handleResetRotation}
+            thumbs={thumbs}
+          />
+        </div>
+
+        {/* Top-Right Menu Button */}
+        <div style={{ position: 'absolute', top: 12, right: 14, zIndex: 25 }}>
+          <button
+            type="button"
+            title="Open Menu"
+            onClick={() => setDrawer(drawer === 'none' ? 'menu' : 'none')}
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              width: 40,
+              height: 40,
+              background: 'rgba(30, 30, 35, 0.85)',
+              backdropFilter: 'blur(8px)',
+              border: '1.5px solid rgba(255,255,255,0.2)',
+              borderRadius: 10,
+              boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+              cursor: 'pointer',
+              color: '#fff',
+            }}
+          >
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M17.5 2.5H2.50004C1.58337 2.5 0.833374 3.25 0.833374 4.16667V15.8333C0.833374 16.75 1.58337 17.5 2.50004 17.5H17.5C18.4167 17.5 19.1667 16.75 19.1667 15.8333V4.16667C19.1667 3.25 18.4167 2.5 17.5 2.5ZM17.5 15.8333H2.50004V4.16667H17.5V15.8333ZM9.16671 10H16.6667V15H9.16671V10Z" fill="white" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Bottom Unsaved Changes & Save Badge */}
+        {hasChanges && (
+          <div style={{ position: 'absolute', bottom: 14, left: 14, zIndex: 25, display: 'flex', alignItems: 'center', gap: 8 }}>
             <button
-              className="btn btn-ghost"
-              onClick={() => {
-                setUrl(wsInput);
-                disconnect();
-                setTimeout(connect, 100);
+              type="button"
+              onClick={handleSave}
+              style={{
+                backgroundColor: '#fac800',
+                color: '#111',
+                border: 'none',
+                borderRadius: 8,
+                padding: '6px 14px',
+                fontSize: 12.5,
+                fontWeight: 700,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                boxShadow: '0 2px 10px rgba(250, 200, 0, 0.4)',
               }}
-              style={{ flex: '0 0 84px' }}
             >
-              Apply
+              {saveStatus === 'saving' ? 'Menyimpan...' : saveStatus === 'saved' ? 'Tersimpan!' : 'Save Changes'}
             </button>
-          </div>
-          <div className="row" style={{ marginTop: 10 }}>
-            <button className="btn btn-ghost" onClick={status === 'connected' ? disconnect : connect}>
-              {status === 'connected' ? 'Disconnect' : 'Connect'}
+            <button
+              type="button"
+              onClick={() => {
+                store.discard();
+                setSelectedId(null);
+              }}
+              style={{
+                backgroundColor: 'rgba(255,255,255,0.12)',
+                color: '#fff',
+                border: '1px solid rgba(255,255,255,0.2)',
+                borderRadius: 8,
+                padding: '6px 12px',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+              }}
+            >
+              Discard
             </button>
-            <button className="btn btn-ghost" onClick={handleRefresh} disabled={status !== 'connected'}>
-              Get Scene
-            </button>
-          </div>
-          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 8 }}>
-            On phone, open PWA via <code>http://&lt;PC-IP&gt;:5173</code> and use <code>ws://&lt;PC-IP&gt;:8087</code>
-          </div>
-        </div>
-      </div>
-
-      {/* Scene */}
-      <div className="section" style={{ flex: 1 }}>
-        <p className="section-title">SCENE</p>
-        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>{scene ? scene.name : '— not loaded —'}</div>
-
-        <Canvas scene={scene} selectedId={selectedId} onSelect={setSelectedId} onMove={handleMove} thumbnail={thumbnail} thumbs={thumbs} />
-
-        {scene && (
-          <div style={{ marginTop: 12 }} className="item-list">
-            {scene.items.map((it) => (
-              <div key={it.sceneItemId} className={`item-row ${selectedId === it.sceneItemId ? 'active' : ''}`} onClick={() => setSelectedId(it.sceneItemId)}>
-                <div>
-                  <div style={{ fontWeight: 700 }}>{it.sourceName}</div>
-                  <div style={{ fontSize: 11, color: '#9ca3af' }}>
-                    #{it.sceneItemId} {it.sourceType} · {Math.round(it.x)},{Math.round(it.y)} · {Math.round(it.width)}×{Math.round(it.height)} {it.visible ? '' : '· hidden'}
-                  </div>
-                </div>
-                <div style={{ fontSize: 11, color: '#a78bfa' }}>{it.visible ? '●' : '○'}</div>
-              </div>
-            ))}
           </div>
         )}
 
-        {selectedId != null && (
-          <div className="card" style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Selected #{selectedId}</div>
-            <div className="row">
-              <button className="btn btn-danger" onClick={handleDelete}>
-                Delete
-              </button>
-              <button className="btn btn-ghost" onClick={() => setSelectedId(null)}>
-                Deselect
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {hasChanges && <div className="unsaved">Unsaved changes — press Save</div>}
-
-      <div className="bottom-bar">
-        <button className="btn btn-ghost" onClick={() => alert('+ Overlay — coming soon: camera/image/text/browser')}>
-          + Overlay
-        </button>
-        <button className="btn btn-primary" onClick={handleSave} disabled={!hasChanges || saveStatus === 'saving' || status !== 'connected'}>
-          {saveStatus === 'saving' ? 'Saving...' : saveStatus === 'saved' ? 'Saved!' : 'SAVE'}
-        </button>
-      </div>
-
-      <div style={{ padding: 12, textAlign: 'center', fontSize: 10, color: '#6b7280' }}>
-        <button className="btn btn-ghost" onClick={() => { store.discard(); setSelectedId(null); }} disabled={!hasChanges} style={{ minHeight: 36, fontSize: 12 }}>
-          Discard
-        </button>
-        <div style={{ marginTop: 8 }}>Local edits until Save — OBS unchanged while dragging.</div>
+        {/* Drawers (Menu, OBS Settings, Scene Changer, Overlays List, Edit Overlay, Add Overlay) */}
+        <Drawers
+          drawer={drawer}
+          setDrawer={setDrawer}
+          scene={scene}
+          selectedItem={selectedItem}
+          onSelectItem={setSelectedId}
+          onUpdateScene={handleRefresh}
+          onDisconnect={handleDisconnect}
+          onSave={handleSave}
+          onDelete={handleDelete}
+          onToggleVisible={handleToggleVisible}
+          onUpdateItem={handleUpdateItem}
+          onAddItem={handleAddItem}
+        />
       </div>
     </div>
   );

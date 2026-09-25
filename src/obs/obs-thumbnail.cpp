@@ -2,6 +2,7 @@
 
 #include <obs-frontend-api.h>
 #include <obs.h>
+#include <util/bmem.h>
 #include <util/config-file.h>
 
 #ifdef _MSC_VER
@@ -19,6 +20,7 @@
 #include <QImage>
 #include <QMainWindow>
 #include <QPixmap>
+#include <QRegularExpression>
 #include <QScreen>
 #include <QStandardPaths>
 #include <QThread>
@@ -203,10 +205,39 @@ static QString captureViaScreenshotFile(int maxWidth)
 	return pixmapToBase64(pix, maxWidth);
 }
 
+// Dedicated local folder for this plugin's thumbnails:
+// %APPDATA%/obs-studio/plugin_config/irl-toolkit/thumbs (auto-created).
+// Later: files here are uploaded to the server, then auto-removed on success.
+static QString getThumbsDir()
+{
+	char *path = obs_module_get_config_path(obs_current_module(), "thumbs");
+	QString dir = path ? QString::fromUtf8(path) : QString();
+	if (path)
+		bfree(path);
+	if (dir.isEmpty())
+		dir = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation) + "/irl-toolkit";
+	QDir().mkpath(dir);
+	return dir;
+}
+
+// DUMMY uploader for local testing: pretends to upload and always succeeds,
+// so the caller deletes the local file right away.
+// TODO(supabase): PUT jpeg bytes to Supabase Storage here and return the
+// public URL instead of a data URI. Delete local file only on HTTP 200.
+static QString dummyUploadJpeg(const QByteArray &jpeg, const QString &objectName, const QString &localPath)
+{
+	(void)jpeg;
+	obs_log(LOG_INFO, "thumbnail: dummy upload %s (local %s) -> success, removing local file",
+		qPrintable(objectName), qPrintable(localPath));
+	QFile::remove(localPath);
+	return {}; // caller falls back to data URI for local preview
+}
+
 QString captureSourceThumbnail(obs_source_t *source, int maxWidth)
 {
 	if (!source)
 		return {};
+	const char *srcName = obs_source_get_name(source);
 	QString screenshotDir = getScreenshotDir();
 	QDir dir(screenshotDir);
 	if (!dir.exists())
@@ -239,17 +270,38 @@ QString captureSourceThumbnail(obs_source_t *source, int maxWidth)
 		}
 	}
 	if (newFile.isEmpty()) {
-		obs_log(LOG_INFO, "thumbnail: source screenshot not found for %s", obs_source_get_name(source));
+		obs_log(LOG_INFO, "thumbnail: source screenshot not found for %s", srcName ? srcName : "?");
 		return {};
 	}
-	QPixmap pix(newFile);
+	// Move into our dedicated folder
+	QString thumbsDir = getThumbsDir();
+	QString objectName = QString("%1.jpg").arg(QString::fromUtf8(srcName ? srcName : "source"));
+	// Sanitize filename
+	objectName.replace(QRegularExpression("[^A-Za-z0-9._-]"), "_");
+	QString localPath = thumbsDir + "/" + objectName;
+	QFile::remove(localPath);
+	if (!QFile::rename(newFile, localPath)) {
+		// Fall back to reading in place
+		localPath = newFile;
+	}
+	QPixmap pix(localPath);
 	if (pix.isNull()) {
-		obs_log(LOG_WARNING, "thumbnail: failed to load source screenshot %s", qPrintable(newFile));
+		obs_log(LOG_WARNING, "thumbnail: failed to load source screenshot %s", qPrintable(localPath));
 		return {};
 	}
-	obs_log(LOG_INFO, "thumbnail: source %s screenshot %s %dx%d", obs_source_get_name(source), qPrintable(newFile),
+	obs_log(LOG_INFO, "thumbnail: source %s screenshot %s %dx%d", srcName ? srcName : "?", qPrintable(localPath),
 		pix.width(), pix.height());
-	return pixmapToBase64(pix, maxWidth);
+	if (pix.width() > maxWidth)
+		pix = pix.scaledToWidth(maxWidth, Qt::SmoothTransformation);
+	QByteArray jpeg;
+	QBuffer buffer(&jpeg);
+	buffer.open(QIODevice::WriteOnly);
+	if (!pix.save(&buffer, "JPEG", 70))
+		return {};
+	// Dummy upload for local test (deletes local file on "success")
+	dummyUploadJpeg(jpeg, objectName, localPath);
+	// Local preview: data URI so PWA works on localhost without a server
+	return QString("data:image/jpeg;base64,") + QString::fromLatin1(jpeg.toBase64());
 }
 
 QString capturePreviewBase64(int maxWidth)
