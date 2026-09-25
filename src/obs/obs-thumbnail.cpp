@@ -4,7 +4,9 @@
 #include <obs.h>
 #include <util/config-file.h>
 
+#ifdef _MSC_VER
 #pragma warning(disable : 4996)
+#endif
 
 #include <QApplication>
 #include <QBuffer>
@@ -18,12 +20,35 @@
 #include <QMainWindow>
 #include <QPixmap>
 #include <QScreen>
+#include <QStandardPaths>
 #include <QThread>
 #include <QWidget>
 #include <QWindow>
 
 #include <obs-module.h>
 #include <plugin-support.h>
+
+// Screenshot save folder: prefer OBS-configured path, fall back to OS Pictures.
+// Uses deprecated global-config API only where still available; wrapped to
+// avoid -Werror=deprecated-declarations on GCC/Clang and C4996 on MSVC.
+static QString getScreenshotDir()
+{
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+	config_t *cfg = obs_frontend_get_global_config();
+	const char *path = cfg ? config_get_string(cfg, "Output", "ScreenshotPath") : nullptr;
+#if defined(__GNUC__) || defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+	if (path && *path)
+		return QString::fromUtf8(path);
+	QString pics = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation);
+	if (!pics.isEmpty())
+		return pics;
+	return QDir::homePath() + "/Pictures";
+}
 
 static QWidget *findPreviewWidget(QMainWindow *mainWindow)
 {
@@ -62,8 +87,8 @@ static QWidget *findPreviewWidget(QMainWindow *mainWindow)
 			}
 		}
 		if (best) {
-			obs_log(LOG_INFO, "thumbnail: fallback central %s %dx%d", qPrintable(best->metaObject()->className()),
-				best->width(), best->height());
+			obs_log(LOG_INFO, "thumbnail: fallback central %s %dx%d",
+				qPrintable(best->metaObject()->className()), best->width(), best->height());
 			return best;
 		}
 		return central;
@@ -122,14 +147,7 @@ static QString captureViaScreenshotFile(int maxWidth)
 	obs_source_t *sceneSource = obs_frontend_get_current_scene();
 	if (!sceneSource)
 		return {};
-	// Get screenshot folder from OBS config
-	config_t *cfg = obs_frontend_get_global_config();
-	const char *path = config_get_string(cfg, "Output", "ScreenshotPath");
-	QString screenshotDir;
-	if (path && *path)
-		screenshotDir = QString::fromUtf8(path);
-	else
-		screenshotDir = QDir::homePath() + "/Pictures";
+	QString screenshotDir = getScreenshotDir();
 
 	QDir dir(screenshotDir);
 	if (!dir.exists())
@@ -161,7 +179,8 @@ static QString captureViaScreenshotFile(int maxWidth)
 		// Also check for any new file by time
 		if (!after.isEmpty()) {
 			QFileInfo fi(dir.filePath(after.first()));
-			if (fi.lastModified().secsTo(QDateTime::currentDateTime()) < 2 && !before.contains(after.first())) {
+			if (fi.lastModified().secsTo(QDateTime::currentDateTime()) < 2 &&
+			    !before.contains(after.first())) {
 				newFile = dir.filePath(after.first());
 				break;
 			}
@@ -188,14 +207,7 @@ QString captureSourceThumbnail(obs_source_t *source, int maxWidth)
 {
 	if (!source)
 		return {};
-	// Get screenshot folder
-	config_t *cfg = obs_frontend_get_global_config();
-	const char *path = config_get_string(cfg, "Output", "ScreenshotPath");
-	QString screenshotDir;
-	if (path && *path)
-		screenshotDir = QString::fromUtf8(path);
-	else
-		screenshotDir = QDir::homePath() + "/Pictures";
+	QString screenshotDir = getScreenshotDir();
 	QDir dir(screenshotDir);
 	if (!dir.exists())
 		dir.mkpath(".");
@@ -219,7 +231,8 @@ QString captureSourceThumbnail(obs_source_t *source, int maxWidth)
 		}
 		if (!after.isEmpty()) {
 			QFileInfo fi(dir.filePath(after.first()));
-			if (fi.lastModified().secsTo(QDateTime::currentDateTime()) < 2 && !before.contains(after.first())) {
+			if (fi.lastModified().secsTo(QDateTime::currentDateTime()) < 2 &&
+			    !before.contains(after.first())) {
 				newFile = dir.filePath(after.first());
 				break;
 			}
@@ -234,7 +247,8 @@ QString captureSourceThumbnail(obs_source_t *source, int maxWidth)
 		obs_log(LOG_WARNING, "thumbnail: failed to load source screenshot %s", qPrintable(newFile));
 		return {};
 	}
-	obs_log(LOG_INFO, "thumbnail: source %s screenshot %s %dx%d", obs_source_get_name(source), qPrintable(newFile), pix.width(), pix.height());
+	obs_log(LOG_INFO, "thumbnail: source %s screenshot %s %dx%d", obs_source_get_name(source), qPrintable(newFile),
+		pix.width(), pix.height());
 	return pixmapToBase64(pix, maxWidth);
 }
 

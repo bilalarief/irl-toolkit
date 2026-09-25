@@ -20,6 +20,7 @@ bool getCanvasInfo(CanvasInfo &out)
 
 static bool enumSceneItems(obs_scene_t *scene, obs_sceneitem_t *item, void *param)
 {
+	(void)scene;
 	auto *items = static_cast<std::vector<SceneItemInfo> *>(param);
 
 	SceneItemInfo info;
