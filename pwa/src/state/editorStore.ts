@@ -15,6 +15,7 @@ export interface EditorStore {
   current: EditorScene | null;
   setScene(scene: EditorScene): void;
   updateItem(id: number, patch: Partial<EditorItem>): void;
+  revertItem(id: number): void;
   reorderItems(idsBottomFirst: number[]): void;
   hasChanges(): boolean;
   discard(): void;
@@ -45,6 +46,19 @@ export function createEditorStore(): EditorStore & { subscribe: (cb: () => void)
       const idx = current.items.findIndex((i) => i.sceneItemId === id);
       if (idx === -1) return;
       current.items[idx] = { ...current.items[idx], ...patch };
+      notify();
+    },
+    revertItem(id: number) {
+      if (!original || !current) return;
+      const orig = original.items.find((o) => o.sceneItemId === id);
+      if (!orig) {
+        // Never saved (locally added) — reverting removes it
+        current.items = current.items.filter((i) => i.sceneItemId !== id);
+      } else {
+        const idx = current.items.findIndex((i) => i.sceneItemId === id);
+        if (idx === -1) return;
+        current.items[idx] = structuredClone(orig);
+      }
       notify();
     },
     reorderItems(idsBottomFirst: number[]) {

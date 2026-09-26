@@ -108,6 +108,11 @@ export default function App() {
     force((v) => v + 1);
   };
 
+  const handleRevertItem = (id: number) => {
+    store.revertItem(id);
+    force((v) => v + 1);
+  };
+
   const handleSave = () => {
     const diff = store.computeDiff();
     const order = store.computeOrderTopFirst();
@@ -310,6 +315,7 @@ export default function App() {
           onAddItem={handleAddItem}
           onSwitchScene={handleSwitchScene}
           onReorder={handleReorder}
+          onRevertItem={handleRevertItem}
         />
       </div>
     </div>

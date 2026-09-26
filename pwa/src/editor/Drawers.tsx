@@ -19,6 +19,7 @@ interface DrawersProps {
   onAddItem: (name: string, url: string, width: number, height: number, visible: boolean) => void;
   onSwitchScene: (name: string) => void;
   onReorder: (idsTopFirst: number[]) => void;
+  onRevertItem: (id: number) => void;
 }
 
 export function Drawers({
@@ -37,6 +38,7 @@ export function Drawers({
   onAddItem,
   onSwitchScene,
   onReorder,
+  onRevertItem,
 }: DrawersProps) {
   // Form states for Add / Edit
   const [editWidth, setEditWidth] = useState<string>('');
@@ -369,12 +371,22 @@ export function Drawers({
       {drawer === 'edit_overlay' && selectedItem && (
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 14 }}>
-            {/* Header */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 10px', borderRadius: 999, border: '1px solid #fff', color: '#fff', fontSize: 12, fontWeight: 600 }}>
-              <span>{selectedItem.sourceName}</span>
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M17.5 2.5H2.50004C1.58337 2.5 0.833374 3.25 0.833374 4.16667V15.8333C0.833374 16.75 1.58337 17.5 2.50004 17.5H17.5C18.4167 17.5 19.1667 16.75 19.1667 15.8333V4.16667C19.1667 3.25 18.4167 2.5 17.5 2.5ZM17.5 15.8333H2.50004V4.16667H17.5V15.8333ZM9.16671 10H16.6667V15H9.16671V10Z" fill="white" />
-              </svg>
+            {/* Header with back navigation */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <button
+                type="button"
+                title="Back to overlays"
+                onClick={() => setDrawer('overlays_list')}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 26, height: 26, borderRadius: 999, border: '1px dashed #636363', background: 'transparent', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}
+              >
+                ‹
+              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 10px', borderRadius: 999, border: '1px solid #fff', color: '#fff', fontSize: 12, fontWeight: 600 }}>
+                <span>{selectedItem.sourceName}</span>
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M17.5 2.5H2.50004C1.58337 2.5 0.833374 3.25 0.833374 4.16667V15.8333C0.833374 16.75 1.58337 17.5 2.50004 17.5H17.5C18.4167 17.5 19.1667 16.75 19.1667 15.8333V4.16667C19.1667 3.25 18.4167 2.5 17.5 2.5ZM17.5 15.8333H2.50004V4.16667H17.5V15.8333ZM9.16671 10H16.6667V15H9.16671V10Z" fill="white" />
+                </svg>
+              </div>
             </div>
 
             {/* Inputs */}
@@ -406,7 +418,14 @@ export function Drawers({
                   onChange={(e) => {
                     setEditWidth(e.target.value);
                     const val = parseFloat(e.target.value);
-                    if (!isNaN(val) && val > 0) onUpdateItem(selectedItem.sceneItemId, { width: val });
+                    // The field shows effective size (width × scale). Write it
+                    // back through scale so the number you type stays put.
+                    if (!isNaN(val) && val > 0 && selectedItem.width > 0) {
+                      const sign = selectedItem.scaleX < 0 ? -1 : 1;
+                      onUpdateItem(selectedItem.sceneItemId, { scaleX: (val / selectedItem.width) * sign });
+                    } else if (!isNaN(val) && val > 0) {
+                      onUpdateItem(selectedItem.sceneItemId, { width: val });
+                    }
                   }}
                   style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontSize: 13, fontFamily: 'inherit' }}
                 />
@@ -423,7 +442,12 @@ export function Drawers({
                   onChange={(e) => {
                     setEditHeight(e.target.value);
                     const val = parseFloat(e.target.value);
-                    if (!isNaN(val) && val > 0) onUpdateItem(selectedItem.sceneItemId, { height: val });
+                    if (!isNaN(val) && val > 0 && selectedItem.height > 0) {
+                      const sign = selectedItem.scaleY < 0 ? -1 : 1;
+                      onUpdateItem(selectedItem.sceneItemId, { scaleY: (val / selectedItem.height) * sign });
+                    } else if (!isNaN(val) && val > 0) {
+                      onUpdateItem(selectedItem.sceneItemId, { height: val });
+                    }
                   }}
                   style={{ width: '100%', background: 'transparent', border: 'none', outline: 'none', color: '#fff', fontSize: 13, fontFamily: 'inherit' }}
                 />
@@ -435,7 +459,7 @@ export function Drawers({
               <div style={{ display: 'flex', gap: 8 }}>
                 <button
                   type="button"
-                  onClick={() => setDrawer('overlays_list')}
+                  onClick={() => onRevertItem(selectedItem.sceneItemId)}
                   style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', borderRadius: 999, border: '1px dashed #636363', background: 'transparent', color: '#fff', fontSize: 16, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
                 >
                   <span>Undo</span>
@@ -567,7 +591,7 @@ export function Drawers({
                   onClick={() => setDrawer('overlays_list')}
                   style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 12px', borderRadius: 999, border: '1px dashed #636363', background: 'transparent', color: '#fff', fontSize: 16, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
                 >
-                  <span>Undo</span>
+                  <span>Cancel</span>
                   <svg width="18" height="18" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path d="M6.53328 11.4583L7.64162 10.2167L5.53328 8.34168H12.5083C14.35 8.34168 15.8416 9.83335 15.8416 11.675C15.8416 13.5167 14.35 15.0083 12.5083 15.0083H10.0083V16.675H12.5083C15.2666 16.675 17.5083 14.4333 17.5083 11.675C17.5083 8.91668 15.2666 6.67502 12.5083 6.67502H5.52495L7.63328 4.80002L6.52495 3.55835L2.07495 7.51668L6.52495 11.475L6.53328 11.4583Z" fill="white" />
                   </svg>
