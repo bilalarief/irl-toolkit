@@ -74,6 +74,44 @@ SceneInfo getCurrentSceneInfo()
 	return result;
 }
 
+static bool enumSceneNames(void *param, obs_source_t *source)
+{
+	auto *names = static_cast<std::vector<std::string> *>(param);
+	const char *name = obs_source_get_name(source);
+	if (name)
+		names->push_back(name);
+	return true;
+}
+
+std::vector<std::string> getSceneNames()
+{
+	std::vector<std::string> names;
+	obs_enum_scenes(enumSceneNames, &names);
+	return names;
+}
+
+bool switchToScene(const QString &name, QString &error)
+{
+	QByteArray bytes = name.toUtf8();
+	if (bytes.isEmpty()) {
+		error = "empty scene name";
+		return false;
+	}
+	obs_source_t *src = obs_get_source_by_name(bytes.constData());
+	if (!src) {
+		error = QString("scene '%1' not found").arg(name);
+		return false;
+	}
+	if (obs_source_get_type(src) != OBS_SOURCE_TYPE_SCENE) {
+		obs_source_release(src);
+		error = QString("'%1' is not a scene").arg(name);
+		return false;
+	}
+	obs_frontend_set_current_scene(src);
+	obs_source_release(src);
+	return true;
+}
+
 bool applySceneChanges(const QJsonArray &changes, QString &error)
 {
 	obs_source_t *curSceneSource = obs_frontend_get_current_scene();

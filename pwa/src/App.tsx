@@ -15,6 +15,7 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [drawer, setDrawer] = useState<DrawerType>('none');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [scenes, setScenes] = useState<string[]>([]);
 
   // Subscribe to editor store changes
   useEffect(() => store.subscribe(() => force((x) => x + 1)), []);
@@ -40,6 +41,12 @@ export default function App() {
       } else {
         setSaveStatus('error');
         alert(`Save failed: ${lastMessage.error ?? 'unknown'}`);
+      }
+    } else if (lastMessage.type === 'scene_list') {
+      setScenes(lastMessage.scenes);
+    } else if (lastMessage.type === 'error') {
+      if (lastMessage.requestId?.startsWith('switch-')) {
+        alert(`Scene switch failed: ${lastMessage.message}`);
       }
     }
   }, [lastMessage]);
@@ -107,6 +114,20 @@ export default function App() {
 
   const handleRefresh = () => {
     send({ type: 'get_scene', requestId: `r-${Date.now()}` });
+  };
+
+  const handleSwitchScene = (name: string) => {
+    if (name === scene?.name) return;
+    send({ type: 'switch_scene', name, requestId: `switch-${Date.now()}` });
+    // Refresh the list as well so current highlight follows
+    send({ type: 'get_scenes', requestId: `scenes-${Date.now()}` });
+  };
+
+  const handleOpenDrawer = (d: DrawerType) => {
+    if (d === 'scene_changer') {
+      send({ type: 'get_scenes', requestId: `scenes-${Date.now()}` });
+    }
+    setDrawer(d);
   };
 
   const handleConnectUrl = (newUrl: string) => {
@@ -185,7 +206,7 @@ export default function App() {
           <button
             type="button"
             title="Open Menu"
-            onClick={() => setDrawer(drawer === 'none' ? 'menu' : 'none')}
+            onClick={() => handleOpenDrawer(drawer === 'none' ? 'menu' : 'none')}
             style={{
               display: 'flex',
               justifyContent: 'center',
@@ -254,8 +275,9 @@ export default function App() {
         {/* Drawers (Menu, OBS Settings, Scene Changer, Overlays List, Edit Overlay, Add Overlay) */}
         <Drawers
           drawer={drawer}
-          setDrawer={setDrawer}
+          setDrawer={handleOpenDrawer}
           scene={scene}
+          scenes={scenes}
           selectedItem={selectedItem}
           onSelectItem={setSelectedId}
           onUpdateScene={handleRefresh}
@@ -265,6 +287,7 @@ export default function App() {
           onToggleVisible={handleToggleVisible}
           onUpdateItem={handleUpdateItem}
           onAddItem={handleAddItem}
+          onSwitchScene={handleSwitchScene}
         />
       </div>
     </div>

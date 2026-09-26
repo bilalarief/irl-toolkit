@@ -1,6 +1,6 @@
 // Transport-independent protocol (matches plugin/src/protocol/irl-protocol)
 
-export type MessageType = 'ping' | 'pong' | 'get_scene' | 'scene_state' | 'save_changes' | 'save_result' | 'get_thumbnail' | 'thumbnail' | 'get_thumbnails' | 'thumbnails' | 'error';
+export type MessageType = 'ping' | 'pong' | 'get_scene' | 'scene_state' | 'save_changes' | 'save_result' | 'get_thumbnail' | 'thumbnail' | 'get_thumbnails' | 'thumbnails' | 'get_scenes' | 'scene_list' | 'switch_scene' | 'error';
 
 export interface PingMessage {
   type: 'ping';
@@ -69,10 +69,25 @@ export interface ThumbnailsMessage {
   items: Array<{ sceneItemId: number; thumbnail: string }>;
   requestId?: string;
 }
+export interface GetScenesMessage {
+  type: 'get_scenes';
+  requestId?: string;
+}
+export interface ScenesListMessage {
+  type: 'scene_list';
+  scenes: string[];
+  current: string;
+  requestId?: string;
+}
+export interface SwitchSceneMessage {
+  type: 'switch_scene';
+  name: string;
+  requestId?: string;
+}
 export interface ErrorMessage {
   type: 'error';
   message: string;
   requestId?: string;
 }
-export type IncomingMessage = PongMessage | SceneStateMessage | SaveResultMessage | ThumbnailMessage | ThumbnailsMessage | ErrorMessage;
-export type OutgoingMessage = PingMessage | GetSceneMessage | SaveChangesMessage | GetThumbnailMessage | GetThumbnailsMessage;
+export type IncomingMessage = PongMessage | SceneStateMessage | SaveResultMessage | ThumbnailMessage | ThumbnailsMessage | ScenesListMessage | ErrorMessage;
+export type OutgoingMessage = PingMessage | GetSceneMessage | SaveChangesMessage | GetThumbnailMessage | GetThumbnailsMessage | GetScenesMessage | SwitchSceneMessage;

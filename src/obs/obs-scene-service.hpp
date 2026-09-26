@@ -39,5 +39,9 @@ bool getCanvasInfo(CanvasInfo &out);
 SceneInfo getCurrentSceneInfo();
 // Apply changes from PWA save_changes. Returns true if all applied, false if any failed.
 bool applySceneChanges(const QJsonArray &changes, QString &error);
+// All scene names for the PWA scene changer.
+std::vector<std::string> getSceneNames();
+// Switch program to the named scene. Returns false + error if not found.
+bool switchToScene(const QString &name, QString &error);
 
 } // namespace obs_scene_service

@@ -7,8 +7,38 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QString>
+
+#include <vector>
 
 namespace irl_protocol {
+
+static QJsonObject sceneToJson(const SceneInfo &info)
+{
+	QJsonObject scene;
+	scene["name"] = QString::fromUtf8(info.name.c_str());
+	scene["canvasWidth"] = static_cast<int>(info.canvas.width);
+	scene["canvasHeight"] = static_cast<int>(info.canvas.height);
+
+	QJsonArray items;
+	for (const auto &it : info.items) {
+		QJsonObject obj;
+		obj["sceneItemId"] = static_cast<qint64>(it.sceneItemId);
+		obj["sourceName"] = QString::fromUtf8(it.sourceName.c_str());
+		obj["sourceType"] = QString::fromUtf8(it.sourceType.c_str());
+		obj["x"] = it.x;
+		obj["y"] = it.y;
+		obj["width"] = it.width;
+		obj["height"] = it.height;
+		obj["scaleX"] = it.scaleX;
+		obj["scaleY"] = it.scaleY;
+		obj["rotation"] = it.rotation;
+		obj["visible"] = it.visible;
+		items.append(obj);
+	}
+	scene["items"] = items;
+	return scene;
+}
 
 QJsonObject handleMessage(const QJsonObject &req)
 {
@@ -17,6 +47,44 @@ QJsonObject handleMessage(const QJsonObject &req)
 	if (type == "ping") {
 		QJsonObject res;
 		res["type"] = "pong";
+		return res;
+	}
+
+	if (type == "get_scenes") {
+		std::vector<std::string> names = obs_scene_service::getSceneNames();
+		QJsonArray arr;
+		for (const auto &n : names)
+			arr.append(QString::fromUtf8(n.c_str()));
+		SceneInfo info = obs_scene_service::getCurrentSceneInfo();
+
+		QJsonObject res;
+		res["type"] = "scene_list";
+		res["scenes"] = arr;
+		res["current"] = QString::fromUtf8(info.name.c_str());
+		if (req.contains("requestId"))
+			res["requestId"] = req.value("requestId");
+		return res;
+	}
+
+	if (type == "switch_scene") {
+		QString target = req.value("name").toString();
+		if (target.isEmpty())
+			target = req.value("scene").toString();
+		QString error;
+		if (!obs_scene_service::switchToScene(target, error)) {
+			QJsonObject err;
+			err["type"] = "error";
+			err["message"] = error;
+			if (req.contains("requestId"))
+				err["requestId"] = req.value("requestId");
+			return err;
+		}
+		SceneInfo info = obs_scene_service::getCurrentSceneInfo();
+		QJsonObject res;
+		res["type"] = "scene_state";
+		res["scene"] = sceneToJson(info);
+		if (req.contains("requestId"))
+			res["requestId"] = req.value("requestId");
 		return res;
 	}
 

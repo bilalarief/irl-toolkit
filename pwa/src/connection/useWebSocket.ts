@@ -38,8 +38,9 @@ export function useWebSocket() {
         setStatus('connected');
         // auto ping
         ws.send(JSON.stringify({ type: 'ping' }));
-        // auto get_scene on connect
+        // auto get_scene + scene list on connect
         ws.send(JSON.stringify({ type: 'get_scene', requestId: `get-${Date.now()}` }));
+        ws.send(JSON.stringify({ type: 'get_scenes', requestId: `scenes-${Date.now()}` }));
       };
       ws.onmessage = (ev) => {
         try {
