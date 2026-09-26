@@ -17,6 +17,7 @@ export default function App() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [scenes, setScenes] = useState<string[]>([]);
   const [streaming, setStreaming] = useState<boolean | null>(null);
+  const [streamSettings, setStreamSettings] = useState<{ serviceId: string; service: string; server: string; key: string } | null>(null);
 
   // Subscribe to editor store changes
   useEffect(() => store.subscribe(() => force((x) => x + 1)), []);
@@ -47,6 +48,13 @@ export default function App() {
       setScenes(lastMessage.scenes);
     } else if (lastMessage.type === 'stream_status') {
       setStreaming(lastMessage.streaming);
+    } else if (lastMessage.type === 'stream_settings') {
+      setStreamSettings({
+        serviceId: lastMessage.serviceId,
+        service: lastMessage.service,
+        server: lastMessage.server,
+        key: lastMessage.key,
+      });
     } else if (lastMessage.type === 'error') {
       if (lastMessage.requestId?.startsWith('switch-')) {
         alert(`Scene switch failed: ${lastMessage.message}`);
@@ -181,6 +189,7 @@ export default function App() {
     }
     if (d === 'obs_settings') {
       send({ type: 'get_stream_status', requestId: `stream-${Date.now()}` });
+      send({ type: 'get_stream_settings', requestId: `svc-${Date.now()}` });
     }
     setDrawer(d);
   };
@@ -377,6 +386,7 @@ export default function App() {
           streaming={streaming}
           onStartStream={handleStartStream}
           onStopStream={handleStopStream}
+          streamSettings={streamSettings}
         />
       </div>
     </div>

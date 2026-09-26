@@ -111,6 +111,20 @@ QJsonObject handleMessage(const QJsonObject &req)
 		return res;
 	}
 
+	if (type == "get_stream_settings") {
+		obs_streaming::StreamSettings s = obs_streaming::getStreamSettings();
+
+		QJsonObject res;
+		res["type"] = "stream_settings";
+		res["serviceId"] = QString::fromUtf8(s.serviceId.c_str());
+		res["service"] = QString::fromUtf8(s.service.c_str());
+		res["server"] = QString::fromUtf8(s.server.c_str());
+		res["key"] = QString::fromUtf8(s.key.c_str());
+		if (req.contains("requestId"))
+			res["requestId"] = req.value("requestId");
+		return res;
+	}
+
 	if (type == "get_scenes") {
 		std::vector<std::string> names = obs_scene_service::getSceneNames();
 		QJsonArray arr;

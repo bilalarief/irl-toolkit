@@ -1,6 +1,6 @@
 // Transport-independent protocol (matches plugin/src/protocol/irl-protocol)
 
-export type MessageType = 'ping' | 'pong' | 'pair' | 'paired' | 'get_scene' | 'scene_state' | 'save_changes' | 'save_result' | 'get_thumbnail' | 'thumbnail' | 'get_thumbnails' | 'thumbnails' | 'get_scenes' | 'scene_list' | 'switch_scene' | 'get_stream_status' | 'stream_status' | 'start_stream' | 'stop_stream' | 'error';
+export type MessageType = 'ping' | 'pong' | 'pair' | 'paired' | 'get_scene' | 'scene_state' | 'save_changes' | 'save_result' | 'get_thumbnail' | 'thumbnail' | 'get_thumbnails' | 'thumbnails' | 'get_scenes' | 'scene_list' | 'switch_scene' | 'get_stream_status' | 'stream_status' | 'start_stream' | 'stop_stream' | 'get_stream_settings' | 'stream_settings' | 'error';
 
 export interface PingMessage {
   type: 'ping';
@@ -105,6 +105,18 @@ export interface StopStreamMessage {
   type: 'stop_stream';
   requestId?: string;
 }
+export interface GetStreamSettingsMessage {
+  type: 'get_stream_settings';
+  requestId?: string;
+}
+export interface StreamSettingsMessage {
+  type: 'stream_settings';
+  serviceId: string;
+  service: string;
+  server: string;
+  key: string;
+  requestId?: string;
+}
 export interface PairMessage {
   type: 'pair';
   token?: string;
@@ -127,5 +139,5 @@ export interface ErrorMessage {
   requestId?: string;
 }
 export type PairCredential = { token?: string; code?: string };
-export type IncomingMessage = PongMessage | PairedMessage | SceneStateMessage | SaveResultMessage | ThumbnailMessage | ThumbnailsMessage | ScenesListMessage | StreamStatusMessage | ErrorMessage;
-export type OutgoingMessage = PingMessage | PairMessage | GetSceneMessage | SaveChangesMessage | GetThumbnailMessage | GetThumbnailsMessage | GetScenesMessage | SwitchSceneMessage | GetStreamStatusMessage | StartStreamMessage | StopStreamMessage;
+export type IncomingMessage = PongMessage | PairedMessage | SceneStateMessage | SaveResultMessage | ThumbnailMessage | ThumbnailsMessage | ScenesListMessage | StreamStatusMessage | StreamSettingsMessage | ErrorMessage;
+export type OutgoingMessage = PingMessage | PairMessage | GetSceneMessage | SaveChangesMessage | GetThumbnailMessage | GetThumbnailsMessage | GetScenesMessage | SwitchSceneMessage | GetStreamStatusMessage | StartStreamMessage | StopStreamMessage | GetStreamSettingsMessage;

@@ -23,6 +23,7 @@ interface DrawersProps {
   streaming: boolean | null;
   onStartStream: () => void;
   onStopStream: () => void;
+  streamSettings: { serviceId: string; service: string; server: string; key: string } | null;
 }
 
 export function Drawers({
@@ -45,6 +46,7 @@ export function Drawers({
   streaming,
   onStartStream,
   onStopStream,
+  streamSettings,
 }: DrawersProps) {
   // Form states for Add / Edit
   const [editWidth, setEditWidth] = useState<string>('');
@@ -265,6 +267,14 @@ export function Drawers({
               </svg>
             </button>
           )}
+
+          {/* Stream destination (read-only, like OBS Settings → Stream) */}
+          <div style={{ width: 210, padding: '9px 10px', borderRadius: 10, background: 'rgba(255,255,255,0.06)', border: '1px solid #4d4d4d', boxSizing: 'border-box' }}>
+            <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, color: 'rgba(255,255,255,0.55)', marginBottom: 6 }}>
+              STREAM DESTINATION
+            </div>
+            <StreamSettingsRows settings={streamSettings} />
+          </div>
 
           <button
             type="button"
@@ -689,6 +699,81 @@ export function Drawers({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function StreamSettingsRows({
+  settings,
+}: {
+  settings: { serviceId: string; service: string; server: string; key: string } | null;
+}) {
+  const [showKey, setShowKey] = useState(false);
+
+  const row = (label: string, value: string, mono = false) => (
+    <div style={{ marginBottom: 6 }}>
+      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginBottom: 1 }}>{label}</div>
+      <div
+        style={{
+          fontSize: 12.5,
+          fontWeight: 600,
+          color: '#fff',
+          fontFamily: mono ? 'ui-monospace, monospace' : 'inherit',
+          wordBreak: 'break-all',
+        }}
+      >
+        {value || '—'}
+      </div>
+    </div>
+  );
+
+  if (!settings) {
+    return <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)' }}>Loading…</div>;
+  }
+
+  const masked = settings.key ? '•'.repeat(Math.min(settings.key.length, 24)) : '—';
+
+  return (
+    <div>
+      {row('Service', settings.service || settings.serviceId)}
+      {row('Server', settings.server, true)}
+      <div style={{ marginBottom: 2 }}>
+        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginBottom: 1 }}>Stream Key</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div
+            style={{
+              flex: 1,
+              fontSize: 12.5,
+              fontWeight: 600,
+              color: '#fff',
+              fontFamily: 'ui-monospace, monospace',
+              wordBreak: 'break-all',
+            }}
+          >
+            {showKey ? settings.key || '—' : masked}
+          </div>
+          {settings.key && (
+            <button
+              type="button"
+              onClick={() => setShowKey((v) => !v)}
+              style={{
+                background: 'rgba(255,255,255,0.1)',
+                border: '1px solid rgba(255,255,255,0.2)',
+                borderRadius: 6,
+                color: '#fff',
+                fontSize: 11,
+                fontWeight: 600,
+                padding: '3px 8px',
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                flexShrink: 0,
+              }}
+            >
+              {showKey ? 'Hide' : 'Show'}
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
