@@ -23,6 +23,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>.
 #include <QMainWindow>
 
 #include "irl-toolkit-dock.hpp"
+#include "net/irl-relay.hpp"
 #include "net/irl-websocket-server.hpp"
 #include "pairing/irl-pairing.hpp"
 
@@ -32,6 +33,7 @@ OBS_MODULE_USE_DEFAULT_LOCALE(PLUGIN_NAME, "en-US")
 static IRLToolkitDock *irl_toolkit_dock = nullptr;
 static IRLWebSocketServer *irl_ws_server = nullptr;
 static IRLPairingManager *irl_pairing = nullptr;
+static IRLRelayClient *irl_relay = nullptr;
 
 IRLWebSocketServer *irl_get_websocket_server()
 {
@@ -41,6 +43,11 @@ IRLWebSocketServer *irl_get_websocket_server()
 IRLPairingManager *irl_get_pairing_manager()
 {
 	return irl_pairing;
+}
+
+IRLRelayClient *irl_get_relay_client()
+{
+	return irl_relay;
 }
 
 bool obs_module_load(void)
@@ -63,6 +70,9 @@ bool obs_module_load(void)
 	if (!irl_ws_server->start(8087)) {
 		obs_log(LOG_WARNING, "WebSocket server not started - PWA will not connect");
 	}
+
+	// Internet relay (dormant unless Supabase URL + key are set in dock settings)
+	irl_relay = new IRLRelayClient(mainWindow);
 
 	irl_toolkit_dock = new IRLToolkitDock(mainWindow);
 
@@ -87,6 +97,10 @@ void obs_module_unload(void)
 	if (irl_pairing) {
 		irl_pairing->deleteLater();
 		irl_pairing = nullptr;
+	}
+	if (irl_relay) {
+		irl_relay->deleteLater();
+		irl_relay = nullptr;
 	}
 	// Dock is parented to main window and will be destroyed automatically
 	irl_toolkit_dock = nullptr;

@@ -79,6 +79,8 @@ target_sources(
     src/protocol/irl-protocol.hpp
     src/net/irl-websocket-server.cpp
     src/net/irl-websocket-server.hpp
+    src/net/irl-relay.cpp
+    src/net/irl-relay.hpp
     src/pairing/irl-pairing.cpp
     src/pairing/irl-pairing.hpp
     src/pairing/irl-qr.cpp

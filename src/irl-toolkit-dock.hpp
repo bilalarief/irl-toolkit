@@ -3,6 +3,7 @@
 #include <QDockWidget>
 
 class QLabel;
+class QLineEdit;
 class QPushButton;
 class QTextEdit;
 class QTimer;
@@ -19,6 +20,8 @@ private slots:
 	void updateWebSocketStatus();
 	void refreshPairing();
 	void regeneratePairing();
+	void saveRelaySettings();
+	void updateRelayStatus();
 
 private:
 	QLabel *canvasLabel = nullptr;
@@ -33,4 +36,8 @@ private:
 	QLabel *codeLabel = nullptr;
 	QLabel *expiryLabel = nullptr;
 	QTimer *pairingTimer = nullptr;
+	QLabel *relayStatusLabel = nullptr;
+	QLineEdit *supaUrlEdit = nullptr;
+	QLineEdit *supaKeyEdit = nullptr;
+	QLineEdit *pwaUrlEdit = nullptr;
 };

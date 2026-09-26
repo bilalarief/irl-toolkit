@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { QrScannerView } from './QrScannerView';
+import { discoverChannel, relaySupabase } from './relay';
 import type { PairCredential } from '../protocol/types';
 
 interface PairingScreenProps {
@@ -35,10 +36,16 @@ export function PairingScreen({ onConnect, status, pairError, currentUrl }: Pair
       }
     }
 
+    // Relay deep link (OBS dock QR when relay is configured):
+    // https://<pwa>/?channel=<hex>&code=<6-digit> — just open it.
     // Hosted PWA link: https://...?ws=ws://..&token=.. (or code=..)
     try {
       if (target.startsWith('http://') || target.startsWith('https://')) {
         const u = new URL(target);
+        if (u.searchParams.has('channel')) {
+          window.location.href = target;
+          return;
+        }
         const wsParam = u.searchParams.get('ws');
         const tokenParam = u.searchParams.get('token');
         const codeParam = u.searchParams.get('code');
@@ -67,8 +74,23 @@ export function PairingScreen({ onConnect, status, pairError, currentUrl }: Pair
       return;
     }
 
-    // 6-digit pairing code typed from the dock (uses the current/saved URL)
+    // 6-digit pairing code typed from the dock. Prefer the internet relay
+    // when Supabase is configured (works from anywhere); otherwise pair
+    // over the local WebSocket (same WiFi).
     if (/^\d{6}$/.test(target)) {
+      const supa = relaySupabase();
+      if (supa) {
+        void discoverChannel(supa.supaUrl, supa.anonKey, target).then((channel) => {
+          if (channel) {
+            const sep = window.location.href.includes('?') ? '&' : '?';
+            window.location.href = `${window.location.href.split('?')[0]}${sep}channel=${channel}&code=${target}`;
+          } else {
+            const base = currentUrl.includes('://') ? currentUrl : `ws://${currentUrl}`;
+            onConnect(stripQuery(base), { code: target });
+          }
+        });
+        return;
+      }
       const base = currentUrl.includes('://') ? currentUrl : `ws://${currentUrl}`;
       onConnect(stripQuery(base), { code: target });
       return;

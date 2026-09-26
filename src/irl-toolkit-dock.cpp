@@ -1,9 +1,12 @@
 #include "irl-toolkit-dock.hpp"
 
 #include "obs/obs-scene-service.hpp"
+#include "net/irl-relay.hpp"
 #include "net/irl-websocket-server.hpp"
 #include "pairing/irl-pairing.hpp"
 #include "pairing/irl-qr.hpp"
+
+#include <QLineEdit>
 
 IRLWebSocketServer *irl_get_websocket_server();
 
@@ -128,6 +131,46 @@ IRLToolkitDock::IRLToolkitDock(QWidget *parent) : QDockWidget(parent)
 	wsClientsLabel->setStyleSheet("font-size: 11px; color: #6b7280;");
 	mainLayout->addWidget(wsClientsLabel);
 
+	// --- Internet Relay Section ---
+	QLabel *relayHeader = new QLabel("INTERNET RELAY", container);
+	relayHeader->setStyleSheet("font-size: 12px; font-weight: 700; color: #6b7280; letter-spacing: 0.8px;");
+	mainLayout->addWidget(relayHeader);
+
+	relayStatusLabel = new QLabel("Relay: not configured", container);
+	relayStatusLabel->setStyleSheet("font-size: 11px; color: #6b7280;");
+	relayStatusLabel->setWordWrap(true);
+	mainLayout->addWidget(relayStatusLabel);
+
+	supaUrlEdit = new QLineEdit(container);
+	supaUrlEdit->setPlaceholderText("Supabase URL (https://xyz.supabase.co)");
+	supaUrlEdit->setStyleSheet("font-size: 11px; padding: 6px; border: 1px solid #e5e7eb; border-radius: 6px;");
+	mainLayout->addWidget(supaUrlEdit);
+
+	supaKeyEdit = new QLineEdit(container);
+	supaKeyEdit->setPlaceholderText("Supabase anon key");
+	supaKeyEdit->setEchoMode(QLineEdit::Password);
+	supaKeyEdit->setStyleSheet("font-size: 11px; padding: 6px; border: 1px solid #e5e7eb; border-radius: 6px;");
+	mainLayout->addWidget(supaKeyEdit);
+
+	pwaUrlEdit = new QLineEdit(container);
+	pwaUrlEdit->setPlaceholderText("PWA URL (https://…vercel.app)");
+	pwaUrlEdit->setStyleSheet("font-size: 11px; padding: 6px; border: 1px solid #e5e7eb; border-radius: 6px;");
+	mainLayout->addWidget(pwaUrlEdit);
+
+	QPushButton *relaySaveBtn = new QPushButton("Save relay settings", container);
+	relaySaveBtn->setStyleSheet(
+		"QPushButton { background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; border-radius: 8px; padding: 6px 12px; font-size: 12px; }"
+		"QPushButton:hover { background: #e5e7eb; }");
+	connect(relaySaveBtn, &QPushButton::clicked, this, &IRLToolkitDock::saveRelaySettings);
+	mainLayout->addWidget(relaySaveBtn);
+
+	supaUrlEdit->setText(IRLRelayClient::supaUrl());
+	supaKeyEdit->setText(IRLRelayClient::anonKey());
+	pwaUrlEdit->setText(IRLRelayClient::pwaUrl());
+	if (IRLRelayClient *relay = irl_get_relay_client())
+		connect(relay, &IRLRelayClient::statusChanged, this, &IRLToolkitDock::updateRelayStatus);
+	updateRelayStatus();
+
 	// --- Scene Debug Section (Milestone 3) ---
 	QFrame *sceneDivider = new QFrame(container);
 	sceneDivider->setFrameShape(QFrame::HLine);
@@ -213,6 +256,25 @@ void IRLToolkitDock::regeneratePairing()
 		pm->regenerate();
 }
 
+void IRLToolkitDock::saveRelaySettings()
+{
+	IRLRelayClient::saveSettings(supaUrlEdit->text(), supaKeyEdit->text(), pwaUrlEdit->text());
+	if (IRLRelayClient *relay = irl_get_relay_client())
+		relay->reconfigure();
+	updateRelayStatus();
+	refreshPairing();
+}
+
+void IRLToolkitDock::updateRelayStatus()
+{
+	IRLRelayClient *relay = irl_get_relay_client();
+	if (!relay) {
+		relayStatusLabel->setText("Relay: unavailable");
+		return;
+	}
+	relayStatusLabel->setText(relay->statusText());
+}
+
 void IRLToolkitDock::refreshPairing()
 {
 	IRLPairingManager *pm = irl_get_pairing_manager();
@@ -223,12 +285,21 @@ void IRLToolkitDock::refreshPairing()
 		pm->regenerate();
 		return;
 	}
-	IRLWebSocketServer *srv = irl_get_websocket_server();
-	const quint16 port = srv ? srv->port() : 8087;
-	const QString payload = QString("IRLTOOLKIT:ws://%1:%2?token=%3")
-					.arg(IRLPairingManager::lanIpAddress())
-					.arg(port)
-					.arg(pm->token());
+	// Relay QR when the relay is configured (works over the internet),
+	// otherwise the local-WS QR (same WiFi only).
+	QString payload;
+	IRLRelayClient *relay = irl_get_relay_client();
+	if (relay && relay->isConfigured() && !IRLRelayClient::pwaUrl().isEmpty()) {
+		payload = QString("%1/?channel=%2&code=%3")
+				  .arg(IRLRelayClient::pwaUrl(), pm->channel(), pm->code());
+	} else {
+		IRLWebSocketServer *srv = irl_get_websocket_server();
+		const quint16 port = srv ? srv->port() : 8087;
+		payload = QString("IRLTOOLKIT:ws://%1:%2?token=%3")
+				  .arg(IRLPairingManager::lanIpAddress())
+				  .arg(port)
+				  .arg(pm->token());
+	}
 	qrLabel->setPixmap(QPixmap::fromImage(renderQrImage(payload, 192)));
 
 	const QString code = pm->code();

@@ -8,6 +8,7 @@
 !/data
 !/src
 !/pwa
+!/supabase
 !.clang-format
 !.gersemirc
 !.gitignore

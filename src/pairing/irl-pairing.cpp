@@ -12,6 +12,7 @@ IRLPairingManager::IRLPairingManager(QObject *parent) : QObject(parent) {}
 void IRLPairingManager::regenerate(int ttlSecs)
 {
 	pendingToken = randomHex(32);
+	pendingChannel = randomHex(32);
 	// 6-digit code, unique among nothing else pending (single pending slot)
 	quint32 n = QRandomGenerator::system()->bounded(900000u);
 	pendingCode = QString::number(100000u + n);
@@ -41,11 +42,13 @@ QString IRLPairingManager::redeemToken(const QString &token)
 		obs_log(LOG_WARNING, "pairing redeem failed (token mismatch or expired)");
 		return {};
 	}
-	QString sessionId = randomHex(32);
+	// The session id is the relay channel: same credential, any transport.
+	const QString sessionId = pendingChannel;
 	sessions.insert(sessionId, {sessionId, QDateTime::currentDateTimeUtc().addSecs(SESSION_TTL_SECS)});
 	// Single-use: consume the pairing
 	pendingToken.clear();
 	pendingCode.clear();
+	pendingChannel.clear();
 	obs_log(LOG_INFO, "pairing redeemed via token, session issued");
 	emit pairingChanged();
 	return sessionId;
@@ -58,10 +61,11 @@ QString IRLPairingManager::redeemCode(const QString &code)
 		obs_log(LOG_WARNING, "pairing redeem failed (code mismatch or expired)");
 		return {};
 	}
-	QString sessionId = randomHex(32);
+	const QString sessionId = pendingChannel;
 	sessions.insert(sessionId, {sessionId, QDateTime::currentDateTimeUtc().addSecs(SESSION_TTL_SECS)});
 	pendingToken.clear();
 	pendingCode.clear();
+	pendingChannel.clear();
 	obs_log(LOG_INFO, "pairing redeemed via code, session issued");
 	emit pairingChanged();
 	return sessionId;
@@ -80,6 +84,17 @@ bool IRLPairingManager::validateSession(const QString &id)
 		return false;
 	}
 	return true;
+}
+
+QStringList IRLPairingManager::activeChannels()
+{
+	prune();
+	QStringList out;
+	if (hasPending() && !pendingChannel.isEmpty())
+		out.append(pendingChannel);
+	for (auto it = sessions.begin(); it != sessions.end(); ++it)
+		out.append(it.key());
+	return out;
 }
 
 QString IRLPairingManager::lanIpAddress()

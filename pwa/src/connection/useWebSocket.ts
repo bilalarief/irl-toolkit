@@ -1,38 +1,60 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import type { IncomingMessage, OutgoingMessage, PairCredential } from '../protocol/types';
+import { getRelayConfig, RelayTransport, type RelayConfig } from './relay';
 
 export type ConnStatus = 'connecting' | 'pairing' | 'connected' | 'disconnected' | 'error';
 
 const SESSION_KEY = 'irl_session';
+const SESSION_CHANNEL_KEY = 'irl_session_channel';
 const URL_KEY = 'irl_ws_url';
 
-function getInitialConnection(): { url: string; cred: PairCredential | null } {
-  const params = new URLSearchParams(window.location.search);
-  const wsOverride = params.get('ws');
-  const tokenParam = params.get('token');
-  const codeParam = params.get('code');
-  const storedUrl = localStorage.getItem(URL_KEY);
-
-  const host = window.location.hostname;
-  const wsHost = host === 'localhost' || host === '127.0.0.1' ? 'localhost' : host;
-  const url = wsOverride ?? storedUrl ?? `ws://${wsHost}:8087`;
-  const cred: PairCredential | null =
-    tokenParam || codeParam ? { token: tokenParam ?? undefined, code: codeParam ?? undefined } : null;
-  return { url, cred };
+export interface Transport {
+  status: ConnStatus;
+  pairError: string | null;
+  lastMessage: IncomingMessage | null;
+  sceneVersion: number;
+  send: (msg: OutgoingMessage) => boolean;
+  connect: () => void;
+  connectWith: (url: string, cred?: PairCredential) => void;
+  disconnect: () => void;
+  url: string;
+  setUrl: (url: string) => void;
 }
 
-export function useWebSocket() {
+function getDefaultWsUrl(): string {
+  const host = window.location.hostname;
+  // If served via Vite on PC, phone will access via LAN IP:5173 -> use same host for WS
+  // Localhost case -> localhost:8087, otherwise <host>:8087
+  const wsHost = host === 'localhost' || host === '127.0.0.1' ? 'localhost' : host;
+  // Allow override via ?ws=ws://... query param
+  const params = new URLSearchParams(window.location.search);
+  const override = params.get('ws');
+  if (override) return override;
+  // Also allow localStorage override
+  const stored = localStorage.getItem(URL_KEY);
+  if (stored) return stored;
+  return `ws://${wsHost}:8087`;
+}
+
+function useDirectTransport(enabled: boolean): Transport {
   const [status, setStatus] = useState<ConnStatus>('disconnected');
   const [lastMessage, setLastMessage] = useState<IncomingMessage | null>(null);
   const [pairError, setPairError] = useState<string | null>(null);
   const [sceneVersion, setSceneVersion] = useState(0);
   const wsRef = useRef<WebSocket | null>(null);
-  const initial = useRef(getInitialConnection());
+  const initial = useRef({ url: getDefaultWsUrl(), cred: initialCred() });
   const urlRef = useRef(initial.current.url);
   const pendingCred = useRef<PairCredential | null>(initial.current.cred);
   const reconnectTimer = useRef<number | null>(null);
   const wantReconnect = useRef(false);
   const failedRef = useRef(false);
+
+  function initialCred(): PairCredential | null {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token');
+    const code = params.get('code');
+    return token || code ? { token: token ?? undefined, code: code ?? undefined } : null;
+  }
 
   const sendPair = useCallback((ws: WebSocket) => {
     const session = localStorage.getItem(SESSION_KEY);
@@ -52,6 +74,7 @@ export function useWebSocket() {
   }, []);
 
   const connect = useCallback(() => {
+    if (!enabled) return;
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) return;
     setPairError(null);
     setStatus('connecting');
@@ -112,7 +135,15 @@ export function useWebSocket() {
       setStatus('error');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sendPair]);
+  }, [enabled, sendPair]);
+
+  const disconnect = useCallback(() => {
+    wantReconnect.current = false;
+    if (reconnectTimer.current) window.clearTimeout(reconnectTimer.current);
+    wsRef.current?.close();
+    wsRef.current = null;
+    setStatus('disconnected');
+  }, []);
 
   const connectWith = useCallback(
     (url: string, cred?: PairCredential) => {
@@ -123,16 +154,8 @@ export function useWebSocket() {
       window.setTimeout(() => connect(), 100);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [connect]
+    [connect, disconnect]
   );
-
-  const disconnect = useCallback(() => {
-    wantReconnect.current = false;
-    if (reconnectTimer.current) window.clearTimeout(reconnectTimer.current);
-    wsRef.current?.close();
-    wsRef.current = null;
-    setStatus('disconnected');
-  }, []);
 
   const send = useCallback((msg: OutgoingMessage) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -148,6 +171,7 @@ export function useWebSocket() {
   }, []);
 
   useEffect(() => {
+    if (!enabled) return;
     // Auto-connect only when we can pair without user input (stored session
     // or ?token=/?code= URL). Otherwise wait on the pairing screen.
     if (localStorage.getItem(SESSION_KEY) || pendingCred.current) {
@@ -159,7 +183,109 @@ export function useWebSocket() {
       wsRef.current?.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [enabled]);
 
   return { status, pairError, lastMessage, sceneVersion, send, connect, connectWith, disconnect, url: urlRef.current, setUrl };
+}
+
+function useRelayTransport(cfg: RelayConfig | null): Transport {
+  const [status, setStatus] = useState<ConnStatus>(cfg ? 'connecting' : 'disconnected');
+  const [lastMessage, setLastMessage] = useState<IncomingMessage | null>(null);
+  const [pairError, setPairError] = useState<string | null>(null);
+  const [sceneVersion, setSceneVersion] = useState(0);
+  const transportRef = useRef<RelayTransport | null>(null);
+
+  const handleMessage = useCallback(
+    (msg: IncomingMessage) => {
+      if (!cfg) return;
+      if (msg.type === 'paired') {
+        if (msg.success && msg.session) {
+          localStorage.setItem(SESSION_KEY, msg.session);
+          localStorage.setItem(SESSION_CHANNEL_KEY, cfg.channel);
+          setStatus('connected');
+          transportRef.current?.send({ type: 'ping' });
+          transportRef.current?.send({ type: 'get_scene', requestId: `get-${Date.now()}` });
+          transportRef.current?.send({ type: 'get_scenes', requestId: `scenes-${Date.now()}` });
+        } else {
+          localStorage.removeItem(SESSION_KEY);
+          setPairError(msg.error ?? 'Pairing failed');
+          setStatus('error');
+        }
+        return;
+      }
+      setLastMessage(msg);
+      if (msg.type === 'scene_state') setSceneVersion((v) => v + 1);
+    },
+    [cfg]
+  );
+
+  const startPair = useCallback(() => {
+    if (!cfg || !transportRef.current) return;
+    setPairError(null);
+    setStatus('pairing');
+    const storedSession = localStorage.getItem(SESSION_KEY);
+    const storedChannel = localStorage.getItem(SESSION_CHANNEL_KEY);
+    if (storedSession && storedChannel === cfg.channel) {
+      transportRef.current.send({ type: 'pair', session: storedSession });
+    } else if (cfg.code) {
+      transportRef.current.send({ type: 'pair', code: cfg.code });
+    } else {
+      setPairError('Open this page from the OBS dock QR code, or pair again to get a fresh code.');
+      setStatus('error');
+    }
+  }, [cfg]);
+
+  const connect = useCallback(() => {
+    if (!cfg) return;
+    startPair();
+  }, [cfg, startPair]);
+
+  const disconnect = useCallback(() => {
+    transportRef.current?.stop();
+    setStatus('disconnected');
+  }, []);
+
+  useEffect(() => {
+    if (!cfg) return;
+    const t = new RelayTransport(cfg, handleMessage);
+    transportRef.current = t;
+    t.start();
+    startPair();
+    return () => {
+      t.stop();
+      transportRef.current = null;
+    };
+  }, [cfg, handleMessage, startPair]);
+
+  const send = useCallback((msg: OutgoingMessage) => {
+    if (!transportRef.current) return false;
+    void transportRef.current.send(msg);
+    return true;
+  }, []);
+
+  const connectWith = useCallback((_url: string, _cred?: PairCredential) => {
+    connect();
+  }, [connect]);
+
+  const setUrl = useCallback(() => {}, []);
+
+  return {
+    status,
+    pairError,
+    lastMessage,
+    sceneVersion,
+    send,
+    connect,
+    connectWith,
+    disconnect,
+    url: cfg ? `relay:${cfg.channel.slice(0, 8)}…` : '',
+    setUrl,
+  };
+}
+
+export function useWebSocket(): Transport {
+  const relayCfg = useMemo(getRelayConfig, []);
+  const direct = useDirectTransport(!relayCfg);
+  const relay = useRelayTransport(relayCfg);
+  return relayCfg ? relay : direct;
 }
