@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import type { EditorItem, EditorScene } from '../protocol/types';
 
 export type DrawerType = 'none' | 'menu' | 'obs_settings' | 'scene_changer' | 'overlays_list' | 'edit_overlay' | 'add_overlay';
@@ -18,6 +18,7 @@ interface DrawersProps {
   onUpdateItem: (id: number, patch: Partial<EditorItem>) => void;
   onAddItem: (name: string, width: number, height: number) => void;
   onSwitchScene: (name: string) => void;
+  onReorder: (idsTopFirst: number[]) => void;
 }
 
 export function Drawers({
@@ -35,6 +36,7 @@ export function Drawers({
   onUpdateItem,
   onAddItem,
   onSwitchScene,
+  onReorder,
 }: DrawersProps) {
   // Form states for Add / Edit
   const [editWidth, setEditWidth] = useState<string>('');
@@ -51,6 +53,9 @@ export function Drawers({
       setEditHeight(Math.round(selectedItem.height * selectedItem.scaleY).toString());
     }
   }, [selectedItem]);
+
+  // OBS enum order is bottom-first; display top-first like the OBS sources list
+  const displayItems = useMemo(() => [...(scene?.items ?? [])].reverse(), [scene]);
 
   if (drawer === 'none') return null;
 
@@ -309,41 +314,19 @@ export function Drawers({
             </svg>
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', maxHeight: 220, overflowY: 'auto' }}>
-            {scene?.items.map((it) => (
-              <div
-                key={it.sceneItemId}
-                onClick={() => {
-                  onSelectItem(it.sceneItemId);
-                  setDrawer('edit_overlay');
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  width: '100%',
-                  padding: '8px 10px',
-                  borderRadius: 8,
-                  background: selectedItem?.sceneItemId === it.sceneItemId ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.1)',
-                  border: '1px solid #4d4d4d',
-                  boxSizing: 'border-box',
-                  cursor: 'pointer',
-                }}
-              >
-                <svg width="10" height="14" viewBox="0 0 10 14" fill="#a1a1aa">
-                  <circle cx="2" cy="2" r="1.5" />
-                  <circle cx="8" cy="2" r="1.5" />
-                  <circle cx="2" cy="7" r="1.5" />
-                  <circle cx="8" cy="7" r="1.5" />
-                  <circle cx="2" cy="12" r="1.5" />
-                  <circle cx="8" cy="12" r="1.5" />
-                </svg>
-                <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {it.sourceName}
-                </span>
-              </div>
-            ))}
+          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.55)', textAlign: 'right' }}>
+            Top = front. Drag ⋮⋮ to restack.
           </div>
+
+          <OverlayOrderList
+            items={displayItems}
+            selectedId={selectedItem?.sceneItemId ?? null}
+            onOpen={(id) => {
+              onSelectItem(id);
+              setDrawer('edit_overlay');
+            }}
+            onReorder={onReorder}
+          />
 
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, marginTop: 4 }}>
             <button
@@ -617,6 +600,149 @@ export function Drawers({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function OverlayOrderList({
+  items,
+  selectedId,
+  onOpen,
+  onReorder,
+}: {
+  items: EditorItem[];
+  selectedId: number | null;
+  onOpen: (id: number) => void;
+  onReorder: (idsTopFirst: number[]) => void;
+}) {
+  const [dragId, setDragId] = useState<number | null>(null);
+  const [dropIndex, setDropIndex] = useState<number>(0);
+  const rowRefs = useRef(new Map<number, HTMLDivElement>());
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const dropRef = useRef(0);
+  const dragIdRef = useRef<number | null>(null);
+  const suppressClick = useRef(false);
+
+  // Live preview order while dragging (top-first)
+  const ordered = useMemo(() => {
+    if (dragId === null) return items;
+    const rest = items.filter((i) => i.sceneItemId !== dragId);
+    const dragged = items.find((i) => i.sceneItemId === dragId);
+    if (!dragged) return items;
+    const idx = Math.max(0, Math.min(dropIndex, rest.length));
+    return [...rest.slice(0, idx), dragged, ...rest.slice(idx)];
+  }, [items, dragId, dropIndex]);
+
+  const indexForY = (y: number) => {
+    for (let i = 0; i < ordered.length; i++) {
+      const el = rowRefs.current.get(ordered[i].sceneItemId);
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (y < r.top + r.height / 2) return i;
+    }
+    return ordered.length;
+  };
+
+  const onGripDown = (e: React.PointerEvent, id: number) => {
+    e.stopPropagation();
+    e.preventDefault();
+    dragIdRef.current = id;
+    setDragId(id);
+    let moved = false;
+    const startY = e.clientY;
+    const move = (ev: PointerEvent) => {
+      if (Math.abs(ev.clientY - startY) > 4) moved = true;
+      const idx = indexForY(ev.clientY);
+      dropRef.current = idx;
+      setDropIndex(idx);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      const didMove = moved;
+      const finalId = dragIdRef.current;
+      dragIdRef.current = null;
+      setDragId(null);
+      if (didMove && finalId !== null) {
+        suppressClick.current = true;
+        // Commit top-first order from the latest items
+        const cur = itemsRef.current.filter((i) => i.sceneItemId !== finalId);
+        const dragged = itemsRef.current.find((i) => i.sceneItemId === finalId);
+        if (dragged) {
+          const idx = Math.max(0, Math.min(dropRef.current, cur.length));
+          onReorder([...cur.slice(0, idx), dragged, ...cur.slice(idx)].map((i) => i.sceneItemId));
+        }
+      }
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', maxHeight: 220, overflowY: 'auto' }}>
+      {ordered.map((it) => {
+        const dragging = dragId === it.sceneItemId;
+        return (
+          <div
+            key={it.sceneItemId}
+            ref={(el) => {
+              if (el) rowRefs.current.set(it.sceneItemId, el);
+              else rowRefs.current.delete(it.sceneItemId);
+            }}
+            onClick={() => {
+              if (suppressClick.current) {
+                suppressClick.current = false;
+                return;
+              }
+              onOpen(it.sceneItemId);
+            }}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              width: '100%',
+              padding: '8px 10px',
+              borderRadius: 8,
+              background: dragging
+                ? 'rgba(250,200,0,0.25)'
+                : selectedId === it.sceneItemId
+                  ? 'rgba(255,255,255,0.2)'
+                  : 'rgba(255,255,255,0.1)',
+              border: dragging ? '1px solid #fac800' : '1px solid #4d4d4d',
+              boxSizing: 'border-box',
+              cursor: 'pointer',
+              opacity: dragging ? 0.85 : 1,
+              touchAction: 'pan-y',
+            }}
+          >
+            <span
+              onPointerDown={(e) => onGripDown(e, it.sceneItemId)}
+              title="Drag to restack"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                padding: '6px 4px',
+                margin: '-6px 0 -6px -4px',
+                cursor: 'grab',
+                touchAction: 'none',
+              }}
+            >
+              <svg width="10" height="14" viewBox="0 0 10 14" fill="#a1a1aa">
+                <circle cx="2" cy="2" r="1.5" />
+                <circle cx="8" cy="2" r="1.5" />
+                <circle cx="2" cy="7" r="1.5" />
+                <circle cx="8" cy="7" r="1.5" />
+                <circle cx="2" cy="12" r="1.5" />
+                <circle cx="8" cy="12" r="1.5" />
+              </svg>
+            </span>
+            <span style={{ fontSize: 14, fontWeight: 600, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {it.sourceName}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

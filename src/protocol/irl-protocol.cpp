@@ -130,7 +130,8 @@ QJsonObject handleMessage(const QJsonObject &req)
 			changes = req.value("diff").toArray();
 		}
 		QString error;
-		bool ok = obs_scene_service::applySceneChanges(changes, error);
+		QJsonArray order = req.value("order").toArray();
+		bool ok = obs_scene_service::applySceneChanges(changes, order, error);
 
 		QJsonObject res;
 		res["type"] = "save_result";

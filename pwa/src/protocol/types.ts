@@ -41,6 +41,8 @@ export interface SceneStateMessage {
 export interface SaveChangesMessage {
   type: 'save_changes';
   changes: Array<{ sceneItemId: number; deleted?: boolean } & Partial<EditorItem>>;
+  /** Full scene item ID order, top-first. Sent only when stacking changed. */
+  order?: number[];
   requestId?: string;
 }
 export interface SaveResultMessage {

@@ -3,7 +3,7 @@ import { useWebSocket } from './connection/useWebSocket';
 import { PairingScreen } from './connection/PairingScreen';
 import { Canvas } from './editor/Canvas';
 import { Drawers, type DrawerType } from './editor/Drawers';
-import type { EditorScene, EditorItem } from './protocol/types';
+import type { EditorScene, EditorItem, SaveChangesMessage } from './protocol/types';
 import { createEditorStore } from './state/editorStore';
 
 const store = createEditorStore();
@@ -98,13 +98,25 @@ export default function App() {
     force((v) => v + 1);
   };
 
+  const handleReorder = (idsTopFirst: number[]) => {
+    store.reorderItems([...idsTopFirst].reverse());
+    force((v) => v + 1);
+  };
+
   const handleSave = () => {
     const diff = store.computeDiff();
-    if (diff.length === 0) return;
+    const order = store.computeOrderTopFirst();
+    if (diff.length === 0 && !order) return;
     const changes = diff.map((d) =>
       d.deleted ? { sceneItemId: d.sceneItemId, deleted: true } : { sceneItemId: d.sceneItemId, ...d.patch }
     );
-    const ok = send({ type: 'save_changes', changes, requestId: `save-${Date.now()}` } as const);
+    const payload: SaveChangesMessage = {
+      type: 'save_changes',
+      changes,
+      requestId: `save-${Date.now()}`,
+    };
+    if (order) payload.order = order;
+    const ok = send(payload);
     if (!ok) {
       alert('Not connected to OBS plugin');
       return;
@@ -288,6 +300,7 @@ export default function App() {
           onUpdateItem={handleUpdateItem}
           onAddItem={handleAddItem}
           onSwitchScene={handleSwitchScene}
+          onReorder={handleReorder}
         />
       </div>
     </div>

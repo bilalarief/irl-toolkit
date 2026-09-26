@@ -112,7 +112,28 @@ bool switchToScene(const QString &name, QString &error)
 	return true;
 }
 
-bool applySceneChanges(const QJsonArray &changes, QString &error)
+static obs_sceneitem_t *findItemById(obs_scene_t *scene, qint64 id)
+{
+	struct FindCtx {
+		qint64 id;
+		obs_sceneitem_t *found = nullptr;
+	} ctx{id, nullptr};
+
+	obs_scene_enum_items(
+		scene,
+		[](obs_scene_t *, obs_sceneitem_t *item, void *param) {
+			auto *c = static_cast<FindCtx *>(param);
+			if (obs_sceneitem_get_id(item) == c->id) {
+				c->found = item;
+				return false; // stop
+			}
+			return true;
+		},
+		&ctx);
+	return ctx.found;
+}
+
+bool applySceneChanges(const QJsonArray &changes, const QJsonArray &order, QString &error)
 {
 	obs_source_t *curSceneSource = obs_frontend_get_current_scene();
 	if (!curSceneSource) {
@@ -155,30 +176,13 @@ bool applySceneChanges(const QJsonArray &changes, QString &error)
 			patch = obj; // flat
 
 		// Find item by id
-		struct FindCtx {
-			qint64 id;
-			obs_sceneitem_t *found = nullptr;
-		} ctx{id, nullptr};
+		obs_sceneitem_t *item = findItemById(scene, id);
 
-		obs_scene_enum_items(
-			scene,
-			[](obs_scene_t *, obs_sceneitem_t *item, void *param) {
-				auto *c = static_cast<FindCtx *>(param);
-				if (obs_sceneitem_get_id(item) == c->id) {
-					c->found = item;
-					return false; // stop
-				}
-				return true;
-			},
-			&ctx);
-
-		if (!ctx.found) {
+		if (!item) {
 			error = QString("item %1 not found").arg(id);
 			allOk = false;
 			continue;
 		}
-
-		obs_sceneitem_t *item = ctx.found;
 
 		// Deletion: remove the item from the scene (source itself is kept)
 		if (obj.value("deleted").toBool(false)) {
@@ -233,6 +237,18 @@ bool applySceneChanges(const QJsonArray &changes, QString &error)
 				}
 			}
 		}
+	}
+
+	// Restack overlays. `order` holds scene item IDs top-first: move each to
+	// the top starting from the bottom so the final stack matches the array.
+	for (int i = order.size() - 1; i >= 0; --i) {
+		qint64 id = order[i].toVariant().toLongLong();
+		if (!id)
+			continue;
+		obs_sceneitem_t *item = findItemById(scene, id);
+		if (!item)
+			continue; // unknown id (e.g. deleted or local-only) — skip
+		obs_sceneitem_set_order(item, OBS_ORDER_MOVE_TOP);
 	}
 
 	obs_source_release(curSceneSource);

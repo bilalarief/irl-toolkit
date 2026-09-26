@@ -14,9 +14,11 @@ export interface EditorStore {
   current: EditorScene | null;
   setScene(scene: EditorScene): void;
   updateItem(id: number, patch: Partial<EditorItem>): void;
+  reorderItems(idsBottomFirst: number[]): void;
   hasChanges(): boolean;
   discard(): void;
   computeDiff(): SceneDiff[];
+  computeOrderTopFirst(): number[] | null;
 }
 
 export function createEditorStore(): EditorStore & { subscribe: (cb: () => void) => () => void } {
@@ -43,6 +45,32 @@ export function createEditorStore(): EditorStore & { subscribe: (cb: () => void)
       if (idx === -1) return;
       current.items[idx] = { ...current.items[idx], ...patch };
       notify();
+    },
+    reorderItems(idsBottomFirst: number[]) {
+      if (!current) return;
+      const byId = new Map(current.items.map((i) => [i.sceneItemId, i]));
+      const next: EditorItem[] = [];
+      for (const id of idsBottomFirst) {
+        const it = byId.get(id);
+        if (it) {
+          next.push(it);
+          byId.delete(id);
+        }
+      }
+      // Keep any stragglers (shouldn't happen) at the end
+      for (const it of current.items) {
+        if (byId.has(it.sceneItemId)) next.push(it);
+      }
+      current.items = next;
+      notify();
+    },
+    computeOrderTopFirst() {
+      if (!original || !current) return null;
+      const a = original.items.map((i) => i.sceneItemId);
+      const b = current.items.map((i) => i.sceneItemId);
+      if (JSON.stringify(a) === JSON.stringify(b)) return null;
+      // Store keeps OBS enum order (bottom-first); plugin expects top-first
+      return [...b].reverse();
     },
     hasChanges() {
       if (!original || !current) return false;
