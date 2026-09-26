@@ -11,6 +11,7 @@ class QWebSocket;
 class QTcpServer;
 class QTcpSocket;
 #endif
+#include <QSet>
 
 class IRLWebSocketServer : public QObject {
 	Q_OBJECT
@@ -24,6 +25,7 @@ public:
 	quint16 port() const { return listenPort; }
 	bool isListening() const;
 	int clientCount() const;
+	int authedCount() const { return authed.size(); }
 
 signals:
 	void clientConnected();
@@ -51,5 +53,8 @@ private:
 	QHash<QTcpSocket *, QByteArray> buffers;
 	QHash<QTcpSocket *, bool> handshaked;
 #endif
+	// Sockets that completed pairing (token/code/session). Control messages
+	// are rejected on any other socket.
+	QSet<QObject *> authed;
 	quint16 listenPort = 0;
 };

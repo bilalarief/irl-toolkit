@@ -42,6 +42,27 @@ if(ENABLE_QT)
   )
 endif()
 
+# QR code generation (Nayuki qrcodegen, MIT). Pinned commit, content-addressed
+# URL. Downloaded once into the build dir; never committed to the repo.
+set(QRCODEGEN_REF 3c6d0b3cefb4e049dc337e82237c9644399716a8)
+set(QRCODEGEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/qrcodegen")
+set(QRCODEGEN_BASE "https://raw.githubusercontent.com/nayuki/QR-Code-generator/${QRCODEGEN_REF}/cpp")
+if(NOT EXISTS "${QRCODEGEN_DIR}/qrcodegen.hpp")
+  file(MAKE_DIRECTORY "${QRCODEGEN_DIR}")
+  file(DOWNLOAD "${QRCODEGEN_BASE}/qrcodegen.hpp" "${QRCODEGEN_DIR}/qrcodegen.hpp" STATUS _qr_h_status)
+  list(GET _qr_h_status 0 _qr_h_code)
+  if(NOT _qr_h_code EQUAL 0)
+    message(FATAL_ERROR "Failed to download qrcodegen.hpp: ${_qr_h_status}")
+  endif()
+  file(DOWNLOAD "${QRCODEGEN_BASE}/qrcodegen.cpp" "${QRCODEGEN_DIR}/qrcodegen.cpp" STATUS _qr_c_status)
+  list(GET _qr_c_status 0 _qr_c_code)
+  if(NOT _qr_c_code EQUAL 0)
+    message(FATAL_ERROR "Failed to download qrcodegen.cpp: ${_qr_c_status}")
+  endif()
+endif()
+
+target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${QRCODEGEN_DIR})
+
 target_sources(
   ${CMAKE_PROJECT_NAME}
   PRIVATE
@@ -55,6 +76,11 @@ target_sources(
     src/protocol/irl-protocol.cpp
     src/protocol/irl-protocol.hpp
     src/net/irl-websocket-server.cpp
-    src/net/irl-websocket-server.hpp)
+    src/net/irl-websocket-server.hpp
+    src/pairing/irl-pairing.cpp
+    src/pairing/irl-pairing.hpp
+    src/pairing/irl-qr.cpp
+    src/pairing/irl-qr.hpp
+    ${QRCODEGEN_DIR}/qrcodegen.cpp)
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})

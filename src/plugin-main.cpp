@@ -24,16 +24,23 @@ with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #include "irl-toolkit-dock.hpp"
 #include "net/irl-websocket-server.hpp"
+#include "pairing/irl-pairing.hpp"
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE(PLUGIN_NAME, "en-US")
 
 static IRLToolkitDock *irl_toolkit_dock = nullptr;
 static IRLWebSocketServer *irl_ws_server = nullptr;
+static IRLPairingManager *irl_pairing = nullptr;
 
 IRLWebSocketServer *irl_get_websocket_server()
 {
 	return irl_ws_server;
+}
+
+IRLPairingManager *irl_get_pairing_manager()
+{
+	return irl_pairing;
 }
 
 bool obs_module_load(void)
@@ -46,6 +53,10 @@ bool obs_module_load(void)
 		obs_log(LOG_WARNING, "failed to get OBS main window - dock will not be created");
 		return true;
 	}
+
+	// Pairing manager must exist before the dock (dock shows QR/code)
+	irl_pairing = new IRLPairingManager(mainWindow);
+	irl_pairing->regenerate();
 
 	// Start WebSocket server for PWA (local dev: ws://localhost:8087)
 	irl_ws_server = new IRLWebSocketServer(mainWindow);
@@ -72,6 +83,10 @@ void obs_module_unload(void)
 		irl_ws_server->stop();
 		irl_ws_server->deleteLater();
 		irl_ws_server = nullptr;
+	}
+	if (irl_pairing) {
+		irl_pairing->deleteLater();
+		irl_pairing = nullptr;
 	}
 	// Dock is parented to main window and will be destroyed automatically
 	irl_toolkit_dock = nullptr;

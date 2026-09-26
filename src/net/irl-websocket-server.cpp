@@ -48,6 +48,7 @@ void IRLWebSocketServer::stop()
 		c->deleteLater();
 	}
 	clients.clear();
+	authed.clear();
 }
 
 bool IRLWebSocketServer::isListening() const
@@ -83,6 +84,7 @@ void IRLWebSocketServer::onSocketDisconnected()
 
 	obs_log(LOG_INFO, "WebSocket client disconnected");
 	clients.removeAll(socket);
+	authed.remove(socket);
 	socket->deleteLater();
 	emit clientDisconnected();
 }
@@ -105,7 +107,18 @@ void IRLWebSocketServer::onTextMessage(const QString &message)
 	}
 
 	QJsonObject req = doc.object();
+	const QString reqType = req.value("type").toString();
+	if (reqType != "pair" && reqType != "ping" && !authed.contains(socket)) {
+		QJsonObject err;
+		err["type"] = "error";
+		err["message"] = "not paired — scan the QR code or enter the code from the OBS dock";
+		socket->sendTextMessage(QString::fromUtf8(QJsonDocument(err).toJson(QJsonDocument::Compact)));
+		return;
+	}
+
 	QJsonObject res = irl_protocol::handleMessage(req);
+	if (reqType == "pair" && res.value("type").toString() == "paired" && res.value("success").toBool())
+		authed.insert(socket);
 	QJsonDocument resDoc(res);
 	socket->sendTextMessage(QString::fromUtf8(resDoc.toJson(QJsonDocument::Compact)));
 
@@ -158,6 +171,7 @@ void IRLWebSocketServer::stop()
 	clients.clear();
 	buffers.clear();
 	handshaked.clear();
+	authed.clear();
 }
 
 bool IRLWebSocketServer::isListening() const
@@ -177,7 +191,8 @@ void IRLWebSocketServer::onNewConnection()
 		if (!socket)
 			continue;
 
-		obs_log(LOG_INFO, "WebSocket client connected (TCP) from %s", qPrintable(socket->peerAddress().toString()));
+		obs_log(LOG_INFO, "WebSocket client connected (TCP) from %s",
+			qPrintable(socket->peerAddress().toString()));
 		clients.append(socket);
 		buffers[socket] = QByteArray();
 		handshaked[socket] = false;
@@ -199,6 +214,7 @@ void IRLWebSocketServer::onSocketDisconnected()
 	clients.removeAll(socket);
 	buffers.remove(socket);
 	handshaked.remove(socket);
+	authed.remove(socket);
 	socket->deleteLater();
 	emit clientDisconnected();
 }
@@ -237,7 +253,7 @@ void IRLWebSocketServer::onReadyRead()
 
 		QByteArray accept = QCryptographicHash::hash((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").toUtf8(),
 							     QCryptographicHash::Sha1)
-					  .toBase64();
+					    .toBase64();
 
 		QByteArray response = "HTTP/1.1 101 Switching Protocols\r\n"
 				      "Upgrade: websocket\r\n"
@@ -336,7 +352,18 @@ void IRLWebSocketServer::handleWsMessage(QTcpSocket *socket, const QString &mess
 	}
 
 	QJsonObject req = doc.object();
+	const QString reqType = req.value("type").toString();
+	if (reqType != "pair" && reqType != "ping" && !authed.contains(socket)) {
+		QJsonObject err;
+		err["type"] = "error";
+		err["message"] = "not paired — scan the QR code or enter the code from the OBS dock";
+		sendTextMessage(socket, QString::fromUtf8(QJsonDocument(err).toJson(QJsonDocument::Compact)));
+		return;
+	}
+
 	QJsonObject res = irl_protocol::handleMessage(req);
+	if (reqType == "pair" && res.value("type").toString() == "paired" && res.value("success").toBool())
+		authed.insert(socket);
 	QJsonDocument resDoc(res);
 	sendTextMessage(socket, QString::fromUtf8(resDoc.toJson(QJsonDocument::Compact)));
 

@@ -2,6 +2,8 @@
 
 #include "obs/obs-scene-service.hpp"
 #include "net/irl-websocket-server.hpp"
+#include "pairing/irl-pairing.hpp"
+#include "pairing/irl-qr.hpp"
 
 IRLWebSocketServer *irl_get_websocket_server();
 
@@ -21,7 +23,8 @@ IRLToolkitDock::IRLToolkitDock(QWidget *parent) : QDockWidget(parent)
 {
 	setObjectName("irlToolkitDock");
 	setWindowTitle("IRL Toolkit");
-	setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable | QDockWidget::DockWidgetClosable);
+	setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable |
+		    QDockWidget::DockWidgetClosable);
 
 	QWidget *container = new QWidget(this);
 	container->setObjectName("irlToolkitContainer");
@@ -72,32 +75,44 @@ IRLToolkitDock::IRLToolkitDock(QWidget *parent) : QDockWidget(parent)
 	phoneHeader->setStyleSheet("font-size: 12px; font-weight: 700; color: #6b7280; letter-spacing: 0.8px;");
 	mainLayout->addWidget(phoneHeader);
 
-	// QR placeholder frame
+	// QR pairing frame (single-use code, 5 min expiry)
 	QFrame *qrFrame = new QFrame(container);
-	qrFrame->setObjectName("qrPlaceholder");
+	qrFrame->setObjectName("qrFrame");
 	qrFrame->setFrameShape(QFrame::StyledPanel);
 	qrFrame->setStyleSheet(
-		"#qrPlaceholder { background-color: #f9fafb; border: 2px dashed #d1d5db; border-radius: 12px; }");
-	qrFrame->setMinimumHeight(160);
+		"#qrFrame { background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px; }");
 
 	QVBoxLayout *qrLayout = new QVBoxLayout(qrFrame);
-	qrLayout->setContentsMargins(16, 16, 16, 16);
+	qrLayout->setContentsMargins(12, 12, 12, 12);
+	qrLayout->setSpacing(4);
 	qrLayout->setAlignment(Qt::AlignCenter);
 
-	QLabel *qrIcon = new QLabel(QString::fromUtf8("[ QR CODE ]"), qrFrame);
-	qrIcon->setAlignment(Qt::AlignCenter);
-	qrIcon->setStyleSheet("font-size: 13px; font-weight: 600; color: #9ca3af; letter-spacing: 0.5px;");
-	qrLayout->addWidget(qrIcon);
+	qrLabel = new QLabel(qrFrame);
+	qrLabel->setAlignment(Qt::AlignCenter);
+	qrLabel->setMinimumSize(160, 160);
+	qrLayout->addWidget(qrLabel, 0, Qt::AlignCenter);
 
-	QLabel *qrHint = new QLabel("QR pairing coming soon", qrFrame);
-	qrHint->setAlignment(Qt::AlignCenter);
-	qrHint->setStyleSheet("font-size: 11px; color: #9ca3af;");
-	qrHint->setWordWrap(true);
-	qrLayout->addWidget(qrHint);
+	codeLabel = new QLabel("--", qrFrame);
+	codeLabel->setAlignment(Qt::AlignCenter);
+	codeLabel->setStyleSheet("font-size: 22px; font-weight: 800; letter-spacing: 4px; color: #111827;");
+	codeLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
+	qrLayout->addWidget(codeLabel);
+
+	expiryLabel = new QLabel("", qrFrame);
+	expiryLabel->setAlignment(Qt::AlignCenter);
+	expiryLabel->setStyleSheet("font-size: 11px; color: #6b7280;");
+	qrLayout->addWidget(expiryLabel);
 
 	mainLayout->addWidget(qrFrame);
 
-	QLabel *waitingLabel = new QLabel("Waiting for phone...", container);
+	QPushButton *regenBtn = new QPushButton("Regenerate code", container);
+	regenBtn->setStyleSheet(
+		"QPushButton { background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; border-radius: 8px; padding: 6px 12px; font-size: 12px; }"
+		"QPushButton:hover { background: #e5e7eb; }");
+	connect(regenBtn, &QPushButton::clicked, this, &IRLToolkitDock::regeneratePairing);
+	mainLayout->addWidget(regenBtn);
+
+	QLabel *waitingLabel = new QLabel("Scan the QR or type the code in the phone app.", container);
 	waitingLabel->setAlignment(Qt::AlignCenter);
 	waitingLabel->setStyleSheet("font-size: 12px; color: #6b7280; font-style: italic;");
 	waitingLabel->setWordWrap(true);
@@ -140,7 +155,8 @@ IRLToolkitDock::IRLToolkitDock(QWidget *parent) : QDockWidget(parent)
 	detailsEdit = new QTextEdit(container);
 	detailsEdit->setReadOnly(true);
 	detailsEdit->setMaximumHeight(140);
-	detailsEdit->setStyleSheet("font-size: 10px; font-family: monospace; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px;");
+	detailsEdit->setStyleSheet(
+		"font-size: 10px; font-family: monospace; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px;");
 	detailsEdit->setPlaceholderText("Scene items will appear here...");
 	mainLayout->addWidget(detailsEdit);
 
@@ -179,9 +195,48 @@ IRLToolkitDock::IRLToolkitDock(QWidget *parent) : QDockWidget(parent)
 	connect(wsTimer, &QTimer::timeout, this, &IRLToolkitDock::updateWebSocketStatus);
 	wsTimer->start(1000);
 	updateWebSocketStatus();
+
+	// Pairing QR/code refresh (countdown + auto-regenerate on expiry)
+	if (IRLPairingManager *pm = irl_get_pairing_manager())
+		connect(pm, &IRLPairingManager::pairingChanged, this, &IRLToolkitDock::refreshPairing);
+	pairingTimer = new QTimer(this);
+	connect(pairingTimer, &QTimer::timeout, this, &IRLToolkitDock::refreshPairing);
+	pairingTimer->start(1000);
+	refreshPairing();
 }
 
 IRLToolkitDock::~IRLToolkitDock() = default;
+
+void IRLToolkitDock::regeneratePairing()
+{
+	if (IRLPairingManager *pm = irl_get_pairing_manager())
+		pm->regenerate();
+}
+
+void IRLToolkitDock::refreshPairing()
+{
+	IRLPairingManager *pm = irl_get_pairing_manager();
+	if (!pm)
+		return;
+	if (!pm->hasPending()) {
+		// Single-use code consumed (phone paired) or expired — issue a fresh one
+		pm->regenerate();
+		return;
+	}
+	IRLWebSocketServer *srv = irl_get_websocket_server();
+	const quint16 port = srv ? srv->port() : 8087;
+	const QString payload = QString("IRLTOOLKIT:ws://%1:%2?token=%3")
+					.arg(IRLPairingManager::lanIpAddress())
+					.arg(port)
+					.arg(pm->token());
+	qrLabel->setPixmap(QPixmap::fromImage(renderQrImage(payload, 192)));
+
+	const QString code = pm->code();
+	codeLabel->setText(code.length() == 6 ? code.left(3) + " " + code.mid(3) : code);
+
+	const int left = pm->secondsLeft();
+	expiryLabel->setText(QString("Code expires in %1:%2").arg(left / 60).arg(left % 60, 2, 10, QChar('0')));
+}
 
 void IRLToolkitDock::updateWebSocketStatus()
 {
@@ -193,10 +248,12 @@ void IRLToolkitDock::updateWebSocketStatus()
 		return;
 	}
 	if (srv->isListening()) {
-		wsStatusLabel->setText(QString("WebSocket: ws://localhost:%1").arg(srv->port()));
+		wsStatusLabel->setText(
+			QString("WebSocket: ws://%1:%2").arg(IRLPairingManager::lanIpAddress()).arg(srv->port()));
 		wsStatusLabel->setStyleSheet("font-size: 11px; color: #16a34a; font-family: monospace;");
-		wsClientsLabel->setText(QString("Clients: %1").arg(srv->clientCount()));
-		if (srv->clientCount() > 0)
+		wsClientsLabel->setText(
+			QString("Clients: %1 (paired %2)").arg(srv->clientCount()).arg(srv->authedCount()));
+		if (srv->authedCount() > 0)
 			wsClientsLabel->setStyleSheet("font-size: 11px; color: #16a34a; font-weight: 600;");
 		else
 			wsClientsLabel->setStyleSheet("font-size: 11px; color: #6b7280;");

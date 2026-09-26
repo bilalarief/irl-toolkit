@@ -3,13 +3,13 @@ import { useWebSocket } from './connection/useWebSocket';
 import { PairingScreen } from './connection/PairingScreen';
 import { Canvas } from './editor/Canvas';
 import { Drawers, type DrawerType } from './editor/Drawers';
-import type { EditorScene, EditorItem, SaveChangesMessage } from './protocol/types';
+import type { EditorScene, EditorItem, SaveChangesMessage, PairCredential } from './protocol/types';
 import { createEditorStore } from './state/editorStore';
 
 const store = createEditorStore();
 
 export default function App() {
-  const { status, lastMessage, send, connect, disconnect, url, setUrl } = useWebSocket();
+  const { status, pairError, lastMessage, send, connectWith, disconnect, url, setUrl } = useWebSocket();
   const [, setSceneTick] = useState(0);
   const [, force] = useState(0);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -156,10 +156,10 @@ export default function App() {
     setDrawer(d);
   };
 
-  const handleConnectUrl = (newUrl: string) => {
+  const handleConnectUrl = (newUrl: string, cred?: PairCredential) => {
     setUrl(newUrl);
     disconnect();
-    setTimeout(connect, 100);
+    connectWith(newUrl, cred);
   };
 
   const handleDisconnect = () => {
@@ -168,11 +168,11 @@ export default function App() {
     setSelectedId(null);
   };
 
-  // If disconnected or connecting, display the full portrait pairing screen
+  // If not connected, display the full portrait pairing screen
   if (status !== 'connected') {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', width: '100%', minHeight: '100vh', backgroundColor: '#0b0b0c' }}>
-        <PairingScreen onConnect={handleConnectUrl} status={status} currentUrl={url} />
+        <PairingScreen onConnect={handleConnectUrl} status={status} pairError={pairError} currentUrl={url} />
       </div>
     );
   }

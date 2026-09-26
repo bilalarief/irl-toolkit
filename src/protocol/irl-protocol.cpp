@@ -2,6 +2,7 @@
 
 #include "obs/obs-scene-service.hpp"
 #include "obs/obs-thumbnail.hpp"
+#include "pairing/irl-pairing.hpp"
 
 #include <obs.h>
 
@@ -47,6 +48,51 @@ QJsonObject handleMessage(const QJsonObject &req)
 	if (type == "ping") {
 		QJsonObject res;
 		res["type"] = "pong";
+		return res;
+	}
+
+	if (type == "pair") {
+		QJsonObject res;
+		res["type"] = "paired";
+		if (req.contains("requestId"))
+			res["requestId"] = req.value("requestId");
+
+		IRLPairingManager *pm = irl_get_pairing_manager();
+		if (!pm) {
+			res["success"] = false;
+			res["error"] = "pairing unavailable";
+			return res;
+		}
+		if (req.contains("session")) {
+			QString id = req.value("session").toString();
+			if (pm->validateSession(id)) {
+				res["success"] = true;
+				res["session"] = id;
+				res["resumed"] = true;
+			} else {
+				res["success"] = false;
+				res["error"] = "session expired — scan the QR code again";
+			}
+			return res;
+		}
+		QString session;
+		if (req.contains("token"))
+			session = pm->redeemToken(req.value("token").toString());
+		else if (req.contains("code"))
+			session = pm->redeemCode(req.value("code").toString());
+		else {
+			res["success"] = false;
+			res["error"] = "missing token, code, or session";
+			return res;
+		}
+		if (session.isEmpty()) {
+			res["success"] = false;
+			res["error"] = "invalid or expired code — regenerate on the OBS dock";
+			return res;
+		}
+		res["success"] = true;
+		res["session"] = session;
+		res["expiresIn"] = IRLPairingManager::SESSION_TTL_SECS;
 		return res;
 	}
 
