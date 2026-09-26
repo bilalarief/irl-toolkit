@@ -77,24 +77,29 @@ export default function App() {
     force((v) => v + 1);
   };
 
-  const handleAddItem = (name: string, width: number, height: number) => {
+  const handleAddItem = (name: string, url: string, width: number, height: number, visible: boolean) => {
     if (!store.current) return;
-    const newId = Math.max(0, ...store.current.items.map((i) => i.sceneItemId)) + 1;
+    // Temp negative id: marks the item as not-yet-in-OBS until save
+    const minId = Math.min(0, ...store.current.items.map((i) => i.sceneItemId));
+    const tempId = minId - 1;
+    const cw = store.current.canvasWidth || 1920;
+    const ch = store.current.canvasHeight || 1080;
     const newItem: EditorItem = {
-      sceneItemId: newId,
-      sourceName: name,
+      sceneItemId: tempId,
+      sourceName: name.trim() || 'Browser',
       sourceType: 'browser_source',
-      x: 100,
-      y: 100,
+      url: url.trim(),
+      x: Math.max(0, (cw - width) / 2),
+      y: Math.max(0, (ch - height) / 2),
       width,
       height,
       scaleX: 1,
       scaleY: 1,
       rotation: 0,
-      visible: true,
+      visible,
     };
     store.current.items.push(newItem);
-    setSelectedId(newId);
+    setSelectedId(tempId);
     force((v) => v + 1);
   };
 
@@ -108,7 +113,11 @@ export default function App() {
     const order = store.computeOrderTopFirst();
     if (diff.length === 0 && !order) return;
     const changes = diff.map((d) =>
-      d.deleted ? { sceneItemId: d.sceneItemId, deleted: true } : { sceneItemId: d.sceneItemId, ...d.patch }
+      d.deleted
+        ? { sceneItemId: d.sceneItemId, deleted: true }
+        : d.added
+          ? { sceneItemId: d.sceneItemId, added: true, ...d.patch }
+          : { sceneItemId: d.sceneItemId, ...d.patch }
     );
     const payload: SaveChangesMessage = {
       type: 'save_changes',

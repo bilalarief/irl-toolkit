@@ -7,6 +7,7 @@ export interface SceneDiff {
   sceneItemId: number;
   patch: Partial<EditorItem>;
   deleted?: boolean;
+  added?: boolean;
 }
 
 export interface EditorStore {
@@ -91,7 +92,12 @@ export function createEditorStore(): EditorStore & { subscribe: (cb: () => void)
       }
       for (const cur of current.items) {
         const orig = original.items.find((o) => o.sceneItemId === cur.sceneItemId);
-        if (!orig) continue;
+        if (!orig) {
+          // New overlay created in the PWA (temp negative id) — send it whole
+          const { sceneItemId, ...rest } = cur;
+          diffs.push({ sceneItemId, patch: rest, added: true });
+          continue;
+        }
         const patch: Partial<EditorItem> = {};
         let changed = false;
         (Object.keys(cur) as (keyof EditorItem)[]).forEach((k) => {

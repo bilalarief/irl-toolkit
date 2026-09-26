@@ -133,6 +133,67 @@ static obs_sceneitem_t *findItemById(obs_scene_t *scene, qint64 id)
 	return ctx.found;
 }
 
+// Creates a browser_source overlay from a PWA "added" change and appends it
+// to the scene (on top). Only browser sources are supported for now.
+static bool createBrowserOverlay(obs_scene_t *scene, const QJsonObject &obj, QString &error)
+{
+	QString sourceType = obj.value("sourceType").toString("browser_source");
+	if (sourceType != "browser_source") {
+		error = QString("adding '%1' sources is not supported yet (browser only)").arg(sourceType);
+		return false;
+	}
+	QString name = obj.value("sourceName").toString().trimmed();
+	if (name.isEmpty())
+		name = "Browser";
+	QString url = obj.value("url").toString().trimmed();
+	if (url.isEmpty()) {
+		error = "browser overlay needs a URL";
+		return false;
+	}
+	int w = obj.value("width").toInt(800);
+	int h = obj.value("height").toInt(600);
+	if (w <= 0)
+		w = 800;
+	if (h <= 0)
+		h = 600;
+
+	// Unique name — never collide with an existing source
+	QString unique = name;
+	for (int suffix = 2;; ++suffix) {
+		obs_source_t *existing = obs_get_source_by_name(unique.toUtf8().constData());
+		if (!existing)
+			break;
+		obs_source_release(existing);
+		unique = QString("%1 %2").arg(name).arg(suffix);
+	}
+
+	obs_data_t *settings = obs_data_create();
+	obs_data_set_string(settings, "url", url.toUtf8().constData());
+	obs_data_set_int(settings, "width", w);
+	obs_data_set_int(settings, "height", h);
+	obs_source_t *src = obs_source_create("browser_source", unique.toUtf8().constData(), settings, nullptr);
+	obs_data_release(settings);
+	if (!src) {
+		error = QString("failed to create browser source '%1'").arg(unique);
+		return false;
+	}
+	obs_sceneitem_t *item = obs_scene_add(scene, src);
+	obs_source_release(src);
+	if (!item) {
+		error = QString("failed to add '%1' to the scene").arg(unique);
+		return false;
+	}
+
+	struct vec2 pos;
+	pos.x = float(obj.value("x").toDouble(0.0));
+	pos.y = float(obj.value("y").toDouble(0.0));
+	obs_sceneitem_set_pos(item, &pos);
+	obs_sceneitem_set_visible(item, obj.value("visible").toBool(true));
+	if (obj.contains("rotation"))
+		obs_sceneitem_set_rot(item, float(obj.value("rotation").toDouble(0.0)));
+	return true;
+}
+
 bool applySceneChanges(const QJsonArray &changes, const QJsonArray &order, QString &error)
 {
 	obs_source_t *curSceneSource = obs_frontend_get_current_scene();
@@ -174,6 +235,17 @@ bool applySceneChanges(const QJsonArray &changes, const QJsonArray &order, QStri
 			patch = obj.value("patch").toObject();
 		else
 			patch = obj; // flat
+
+		// Addition: create a new overlay source (browser only for now).
+		// sceneItemId here is a temporary negative PWA-side id — ignored.
+		if (obj.value("added").toBool(false)) {
+			QString addError;
+			if (!createBrowserOverlay(scene, obj, addError)) {
+				error = addError;
+				allOk = false;
+			}
+			continue;
+		}
 
 		// Find item by id
 		obs_sceneitem_t *item = findItemById(scene, id);

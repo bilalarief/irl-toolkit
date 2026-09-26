@@ -16,7 +16,7 @@ interface DrawersProps {
   onDelete: (id: number) => void;
   onToggleVisible: (id: number, visible: boolean) => void;
   onUpdateItem: (id: number, patch: Partial<EditorItem>) => void;
-  onAddItem: (name: string, width: number, height: number) => void;
+  onAddItem: (name: string, url: string, width: number, height: number, visible: boolean) => void;
   onSwitchScene: (name: string) => void;
   onReorder: (idsTopFirst: number[]) => void;
 }
@@ -576,12 +576,26 @@ export function Drawers({
                 <button
                   type="button"
                   onClick={() => {
+                    if (!addUrl.trim()) return;
                     const w = parseFloat(addWidth) || 600;
                     const h = parseFloat(addHeight) || 1280;
-                    onAddItem(addName || 'New Overlay', w, h);
+                    onAddItem(addName || 'Browser', addUrl, w, h, addVisible);
                     setDrawer('overlays_list');
                   }}
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 999, border: '1px solid #fac800', background: '#fac800', color: '#111', fontSize: 15, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    padding: '6px 14px',
+                    borderRadius: 999,
+                    border: '1px solid #fac800',
+                    background: addUrl.trim() ? '#fac800' : 'rgba(250,200,0,0.25)',
+                    color: '#111',
+                    fontSize: 15,
+                    fontWeight: 700,
+                    cursor: addUrl.trim() ? 'pointer' : 'not-allowed',
+                    fontFamily: 'inherit',
+                  }}
                 >
                   <span>Add</span>
                 </button>

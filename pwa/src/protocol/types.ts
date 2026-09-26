@@ -18,6 +18,8 @@ export interface EditorItem {
   sceneItemId: number;
   sourceName: string;
   sourceType: string;
+  /** Browser-source URL. Only present on items created in the PWA. */
+  url?: string;
   x: number;
   y: number;
   width: number;
@@ -40,7 +42,7 @@ export interface SceneStateMessage {
 }
 export interface SaveChangesMessage {
   type: 'save_changes';
-  changes: Array<{ sceneItemId: number; deleted?: boolean } & Partial<EditorItem>>;
+  changes: Array<{ sceneItemId: number; deleted?: boolean; added?: boolean } & Partial<EditorItem>>;
   /** Full scene item ID order, top-first. Sent only when stacking changed. */
   order?: number[];
   requestId?: string;
