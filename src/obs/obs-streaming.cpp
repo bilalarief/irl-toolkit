@@ -12,13 +12,13 @@ bool isStreamingActive()
 void startStreaming()
 {
 	if (!obs_frontend_streaming_active())
-		obs_frontend_start_streaming();
+		obs_frontend_streaming_start();
 }
 
 void stopStreaming()
 {
 	if (obs_frontend_streaming_active())
-		obs_frontend_stop_streaming();
+		obs_frontend_streaming_stop();
 }
 
 } // namespace obs_streaming
