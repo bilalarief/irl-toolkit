@@ -1,6 +1,6 @@
 // Transport-independent protocol (matches plugin/src/protocol/irl-protocol)
 
-export type MessageType = 'ping' | 'pong' | 'pair' | 'paired' | 'get_scene' | 'scene_state' | 'save_changes' | 'save_result' | 'get_thumbnail' | 'thumbnail' | 'get_thumbnails' | 'thumbnails' | 'get_scenes' | 'scene_list' | 'switch_scene' | 'error';
+export type MessageType = 'ping' | 'pong' | 'pair' | 'paired' | 'get_scene' | 'scene_state' | 'save_changes' | 'save_result' | 'get_thumbnail' | 'thumbnail' | 'get_thumbnails' | 'thumbnails' | 'get_scenes' | 'scene_list' | 'switch_scene' | 'get_stream_status' | 'stream_status' | 'start_stream' | 'stop_stream' | 'error';
 
 export interface PingMessage {
   type: 'ping';
@@ -88,6 +88,23 @@ export interface SwitchSceneMessage {
   name: string;
   requestId?: string;
 }
+export interface GetStreamStatusMessage {
+  type: 'get_stream_status';
+  requestId?: string;
+}
+export interface StreamStatusMessage {
+  type: 'stream_status';
+  streaming: boolean;
+  requestId?: string;
+}
+export interface StartStreamMessage {
+  type: 'start_stream';
+  requestId?: string;
+}
+export interface StopStreamMessage {
+  type: 'stop_stream';
+  requestId?: string;
+}
 export interface PairMessage {
   type: 'pair';
   token?: string;
@@ -110,5 +127,5 @@ export interface ErrorMessage {
   requestId?: string;
 }
 export type PairCredential = { token?: string; code?: string };
-export type IncomingMessage = PongMessage | PairedMessage | SceneStateMessage | SaveResultMessage | ThumbnailMessage | ThumbnailsMessage | ScenesListMessage | ErrorMessage;
-export type OutgoingMessage = PingMessage | PairMessage | GetSceneMessage | SaveChangesMessage | GetThumbnailMessage | GetThumbnailsMessage | GetScenesMessage | SwitchSceneMessage;
+export type IncomingMessage = PongMessage | PairedMessage | SceneStateMessage | SaveResultMessage | ThumbnailMessage | ThumbnailsMessage | ScenesListMessage | StreamStatusMessage | ErrorMessage;
+export type OutgoingMessage = PingMessage | PairMessage | GetSceneMessage | SaveChangesMessage | GetThumbnailMessage | GetThumbnailsMessage | GetScenesMessage | SwitchSceneMessage | GetStreamStatusMessage | StartStreamMessage | StopStreamMessage;

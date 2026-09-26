@@ -16,6 +16,7 @@ export default function App() {
   const [drawer, setDrawer] = useState<DrawerType>('none');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [scenes, setScenes] = useState<string[]>([]);
+  const [streaming, setStreaming] = useState<boolean | null>(null);
 
   // Subscribe to editor store changes
   useEffect(() => store.subscribe(() => force((x) => x + 1)), []);
@@ -44,6 +45,8 @@ export default function App() {
       }
     } else if (lastMessage.type === 'scene_list') {
       setScenes(lastMessage.scenes);
+    } else if (lastMessage.type === 'stream_status') {
+      setStreaming(lastMessage.streaming);
     } else if (lastMessage.type === 'error') {
       if (lastMessage.requestId?.startsWith('switch-')) {
         alert(`Scene switch failed: ${lastMessage.message}`);
@@ -57,6 +60,11 @@ export default function App() {
 
   const handleMove = (id: number, x: number, y: number) => {
     store.updateItem(id, { x, y });
+    force((v) => v + 1);
+  };
+
+  const handleResize = (id: number, patch: { x?: number; y?: number; scaleX?: number; scaleY?: number }) => {
+    store.updateItem(id, patch);
     force((v) => v + 1);
   };
 
@@ -140,6 +148,24 @@ export default function App() {
 
   const handleRefresh = () => {
     send({ type: 'get_scene', requestId: `r-${Date.now()}` });
+    send({ type: 'get_scenes', requestId: `scenes-${Date.now()}` });
+  };
+
+  // Keep the streaming badge fresh while connected
+  useEffect(() => {
+    if (status !== 'connected') {
+      setStreaming(null);
+      return;
+    }
+    send({ type: 'get_stream_status', requestId: `stream-${Date.now()}` });
+  }, [status, send]);
+
+  const handleStartStream = () => {
+    send({ type: 'start_stream', requestId: `stream-${Date.now()}` });
+  };
+
+  const handleStopStream = () => {
+    send({ type: 'stop_stream', requestId: `stream-${Date.now()}` });
   };
 
   const handleSwitchScene = (name: string) => {
@@ -152,6 +178,9 @@ export default function App() {
   const handleOpenDrawer = (d: DrawerType) => {
     if (d === 'scene_changer') {
       send({ type: 'get_scenes', requestId: `scenes-${Date.now()}` });
+    }
+    if (d === 'obs_settings') {
+      send({ type: 'get_stream_status', requestId: `stream-${Date.now()}` });
     }
     setDrawer(d);
   };
@@ -219,6 +248,7 @@ export default function App() {
             selectedId={selectedId}
             onSelect={setSelectedId}
             onMove={handleMove}
+            onResize={handleResize}
             onEdit={(id) => {
               setSelectedId(id);
               setDrawer('edit_overlay');
@@ -250,6 +280,34 @@ export default function App() {
           >
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M17.5 2.5H2.50004C1.58337 2.5 0.833374 3.25 0.833374 4.16667V15.8333C0.833374 16.75 1.58337 17.5 2.50004 17.5H17.5C18.4167 17.5 19.1667 16.75 19.1667 15.8333V4.16667C19.1667 3.25 18.4167 2.5 17.5 2.5ZM17.5 15.8333H2.50004V4.16667H17.5V15.8333ZM9.16671 10H16.6667V15H9.16671V10Z" fill="white" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Quick Update Scene Button (below menu) */}
+        <div style={{ position: 'absolute', top: 60, right: 14, zIndex: 25 }}>
+          <button
+            type="button"
+            title="Update Scene"
+            onClick={handleRefresh}
+            style={{
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              width: 40,
+              height: 40,
+              background: 'rgba(30, 30, 35, 0.85)',
+              backdropFilter: 'blur(8px)',
+              border: '1.5px solid rgba(255,255,255,0.2)',
+              borderRadius: 10,
+              boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+              cursor: 'pointer',
+              color: '#fff',
+            }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ffffff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="23 4 23 10 17 10" />
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
             </svg>
           </button>
         </div>
@@ -316,6 +374,9 @@ export default function App() {
           onSwitchScene={handleSwitchScene}
           onReorder={handleReorder}
           onRevertItem={handleRevertItem}
+          streaming={streaming}
+          onStartStream={handleStartStream}
+          onStopStream={handleStopStream}
         />
       </div>
     </div>

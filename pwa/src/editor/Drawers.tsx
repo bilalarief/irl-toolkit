@@ -20,6 +20,9 @@ interface DrawersProps {
   onSwitchScene: (name: string) => void;
   onReorder: (idsTopFirst: number[]) => void;
   onRevertItem: (id: number) => void;
+  streaming: boolean | null;
+  onStartStream: () => void;
+  onStopStream: () => void;
 }
 
 export function Drawers({
@@ -39,6 +42,9 @@ export function Drawers({
   onSwitchScene,
   onReorder,
   onRevertItem,
+  streaming,
+  onStartStream,
+  onStopStream,
 }: DrawersProps) {
   // Form states for Add / Edit
   const [editWidth, setEditWidth] = useState<string>('');
@@ -216,6 +222,49 @@ export function Drawers({
               <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
             </svg>
           </button>
+
+          {/* Streaming controls */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 18px', borderRadius: 999, border: '1px solid #4d4d4d', background: 'rgba(255,255,255,0.06)' }}>
+            <span
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: '50%',
+                backgroundColor: streaming ? '#ef4444' : '#52525b',
+                boxShadow: streaming ? '0 0 8px rgba(239,68,68,0.9)' : 'none',
+                flexShrink: 0,
+              }}
+            />
+            <span style={{ fontSize: 15, fontWeight: 600, color: '#fff' }}>
+              {streaming ? 'LIVE' : streaming === false ? 'Offline' : '…'}
+            </span>
+          </div>
+
+          {!streaming && (
+            <button
+              type="button"
+              onClick={onStartStream}
+              style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 18px', borderRadius: 999, border: '1px solid #16a34a', background: 'rgba(22,163,74,0.15)', color: '#4ade80', fontSize: 18, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+            >
+              <span>Start Streaming</span>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <circle cx="12" cy="12" r="6" />
+              </svg>
+            </button>
+          )}
+
+          {streaming && (
+            <button
+              type="button"
+              onClick={onStopStream}
+              style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 18px', borderRadius: 999, border: '1px solid #ef4444', background: 'rgba(239,68,68,0.15)', color: '#f87171', fontSize: 18, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}
+            >
+              <span>Stop Streaming</span>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <rect x="7" y="7" width="10" height="10" rx="2" />
+              </svg>
+            </button>
+          )}
 
           <button
             type="button"

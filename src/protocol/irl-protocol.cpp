@@ -1,6 +1,7 @@
 #include "protocol/irl-protocol.hpp"
 
 #include "obs/obs-scene-service.hpp"
+#include "obs/obs-streaming.hpp"
 #include "obs/obs-thumbnail.hpp"
 #include "pairing/irl-pairing.hpp"
 
@@ -93,6 +94,20 @@ QJsonObject handleMessage(const QJsonObject &req)
 		res["success"] = true;
 		res["session"] = session;
 		res["expiresIn"] = IRLPairingManager::SESSION_TTL_SECS;
+		return res;
+	}
+
+	if (type == "get_stream_status" || type == "start_stream" || type == "stop_stream") {
+		if (type == "start_stream")
+			obs_streaming::startStreaming();
+		else if (type == "stop_stream")
+			obs_streaming::stopStreaming();
+
+		QJsonObject res;
+		res["type"] = "stream_status";
+		res["streaming"] = obs_streaming::isStreamingActive();
+		if (req.contains("requestId"))
+			res["requestId"] = req.value("requestId");
 		return res;
 	}
 

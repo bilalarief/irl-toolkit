@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { EditorScene, EditorItem } from '../protocol/types';
 import { obsToEditor } from '../coordinate/convert';
 
@@ -7,15 +7,19 @@ interface CanvasProps {
   selectedId: number | null;
   onSelect: (id: number | null) => void;
   onMove: (id: number, x: number, y: number) => void;
+  onResize: (id: number, patch: { x?: number; y?: number; scaleX?: number; scaleY?: number }) => void;
   onEdit: (id: number) => void;
   onDelete: (id: number) => void;
 }
+
+type Corner = 'nw' | 'ne' | 'sw' | 'se';
 
 export function Canvas({
   scene,
   selectedId,
   onSelect,
   onMove,
+  onResize,
   onEdit,
   onDelete,
 }: CanvasProps) {
@@ -134,6 +138,66 @@ export function Canvas({
 
     window.addEventListener('pointermove', onPointerMove);
     window.addEventListener('pointerup', onUp);
+  };
+
+  const handleResizeStart = (e: React.PointerEvent, item: EditorItem, corner: Corner) => {
+    e.stopPropagation();
+    e.preventDefault();
+    onSelect(item.sceneItemId);
+
+    const canvasEl = wrapRef.current;
+    if (!canvasEl) return;
+    const rect = canvasEl.getBoundingClientRect();
+    const toObsX = (clientX: number) => ((clientX - rect.left) * obsCanvas.width) / editorCanvas.width;
+    const toObsY = (clientY: number) => ((clientY - rect.top) * obsCanvas.height) / editorCanvas.height;
+
+    const itemW = item.width * item.scaleX;
+    const itemH = item.height * item.scaleY;
+    // Fixed anchor = opposite corner (axis-aligned; exact when rotation is 0)
+    const anchorX = corner === 'ne' || corner === 'se' ? item.x : item.x + itemW;
+    const anchorY = corner === 'sw' || corner === 'se' ? item.y : item.y + itemH;
+    const signX = item.scaleX < 0 ? -1 : 1;
+    const signY = item.scaleY < 0 ? -1 : 1;
+    const MIN = 20; // min effective size in OBS px
+
+    const onPointerMove = (ev: PointerEvent) => {
+      const px = toObsX(ev.clientX);
+      const py = toObsY(ev.clientY);
+      let nx = item.x;
+      let ny = item.y;
+      let nw: number;
+      let nh: number;
+      if (corner === 'ne' || corner === 'se') {
+        nw = Math.max(MIN, px - item.x);
+      } else {
+        nw = Math.max(MIN, anchorX - px);
+        nx = anchorX - nw;
+      }
+      if (corner === 'sw' || corner === 'se') {
+        nh = Math.max(MIN, py - item.y);
+      } else {
+        nh = Math.max(MIN, anchorY - py);
+        ny = anchorY - nh;
+      }
+      if (item.width > 0 && item.height > 0) {
+        onResize(item.sceneItemId, {
+          x: nx,
+          y: ny,
+          scaleX: (nw / item.width) * signX,
+          scaleY: (nh / item.height) * signY,
+        });
+      } else {
+        onResize(item.sceneItemId, { x: nx, y: ny });
+      }
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+    };
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
   };
 
   const selectedItem = scene?.items.find((i) => i.sceneItemId === selectedId) ?? null;
@@ -260,11 +324,50 @@ export function Canvas({
             zIndex: 25,
           }}
         >
-          {/* 4 Figma Handles (16x16, white, 3px #fac800 border) */}
-          <div style={{ position: 'absolute', left: -8, top: -8, width: 16, height: 16, borderRadius: 2, background: '#fff', border: '3px solid #fac800', boxSizing: 'border-box' }} />
-          <div style={{ position: 'absolute', right: -8, top: -8, width: 16, height: 16, borderRadius: 2, background: '#fff', border: '3px solid #fac800', boxSizing: 'border-box' }} />
-          <div style={{ position: 'absolute', left: -8, bottom: -8, width: 16, height: 16, borderRadius: 2, background: '#fff', border: '3px solid #fac800', boxSizing: 'border-box' }} />
-          <div style={{ position: 'absolute', right: -8, bottom: -8, width: 16, height: 16, borderRadius: 2, background: '#fff', border: '3px solid #fac800', boxSizing: 'border-box' }} />
+          {/* 4 resize handles (16px visual, 32px touch target). Axis-aligned:
+              exact for rotation 0, hidden for rotated overlays (use edit drawer). */}
+          {selectedItem.rotation === 0 &&
+            (
+              [
+                ['nw', { left: -16, top: -16 }],
+                ['ne', { right: -16, top: -16 }],
+                ['sw', { left: -16, bottom: -16 }],
+                ['se', { right: -16, bottom: -16 }],
+              ] as Array<[Corner, CSSProperties]>
+            ).map(([corner, pos]) => (
+              <div
+                key={corner}
+                onPointerDown={(ev) => {
+                  ev.stopPropagation();
+                  if (selectedItem) handleResizeStart(ev, selectedItem, corner);
+                }}
+                title="Resize"
+                style={{
+                  position: 'absolute',
+                  ...pos,
+                  width: 32,
+                  height: 32,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  pointerEvents: 'auto',
+                  touchAction: 'none',
+                  cursor: 'nwse-resize',
+                }}
+              >
+                <div
+                  style={{
+                    width: 16,
+                    height: 16,
+                    borderRadius: 2,
+                    background: '#fff',
+                    border: '3px solid #fac800',
+                    boxSizing: 'border-box',
+                    pointerEvents: 'none',
+                  }}
+                />
+              </div>
+            ))}
         </div>
 
           {/* Floating Action Toolbar — canvas-level, always inside viewport */}
