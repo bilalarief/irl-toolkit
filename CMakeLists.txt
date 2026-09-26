@@ -81,6 +81,7 @@ target_sources(
     src/pairing/irl-pairing.hpp
     src/pairing/irl-qr.cpp
     src/pairing/irl-qr.hpp
-    ${QRCODEGEN_DIR}/qrcodegen.cpp)
+    ${QRCODEGEN_DIR}/qrcodegen.cpp
+)
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})

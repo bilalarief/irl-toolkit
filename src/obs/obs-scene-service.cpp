@@ -5,6 +5,7 @@
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QJsonValue>
 
 namespace obs_scene_service {
 
@@ -211,7 +212,7 @@ bool applySceneChanges(const QJsonArray &changes, const QJsonArray &order, QStri
 
 	bool allOk = true;
 
-	for (const auto &val : changes) {
+	for (const QJsonValue val : changes) {
 		if (!val.isObject())
 			continue;
 		QJsonObject obj = val.toObject();
