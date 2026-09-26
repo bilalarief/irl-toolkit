@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QNetworkRequest>
 #include <QObject>
 #include <QSet>
 #include <QString>
@@ -48,7 +49,7 @@ private:
 	QTimer *timer = nullptr;
 	QString announcedCode;
 	QHash<QString, qint64> lastIds; // channel -> last consumed message id
-	QSet<QString> relayAuthed; // channels that completed pairing
+	QSet<QString> relayAuthed;      // channels that completed pairing
 };
 
 IRLRelayClient *irl_get_relay_client();

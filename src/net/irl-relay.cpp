@@ -134,7 +134,8 @@ void IRLRelayClient::announcePairing()
 	row["expires_at"] = pm->pairExpiresAt().toString(Qt::ISODateWithMs);
 	QJsonArray arr;
 	arr.append(row);
-	QNetworkReply *reply = net->post(restRequest("irl_pairings"), QJsonDocument(arr).toJson(QJsonDocument::Compact));
+	QNetworkReply *reply =
+		net->post(restRequest("irl_pairings"), QJsonDocument(arr).toJson(QJsonDocument::Compact));
 	connect(reply, &QNetworkReply::finished, this, [this, reply]() {
 		reply->deleteLater();
 		if (reply->error() != QNetworkReply::NoError) {
@@ -163,7 +164,8 @@ void IRLRelayClient::postRow(const QString &channel, const QString &sender, cons
 	row["body"] = QJsonDocument::fromJson(body).object();
 	QJsonArray arr;
 	arr.append(row);
-	QNetworkReply *reply = net->post(restRequest("irl_messages"), QJsonDocument(arr).toJson(QJsonDocument::Compact));
+	QNetworkReply *reply =
+		net->post(restRequest("irl_messages"), QJsonDocument(arr).toJson(QJsonDocument::Compact));
 	connect(reply, &QNetworkReply::finished, this, [this, reply]() {
 		reply->deleteLater();
 		if (reply->error() != QNetworkReply::NoError)
@@ -189,8 +191,8 @@ void IRLRelayClient::poll()
 	for (const QString &channel : pm->activeChannels()) {
 		const qint64 last = lastIds.value(channel, 0);
 		QString q = QString("irl_messages?channel=eq.%1&sender=eq.pwa&order=id.asc&id=gt.%2&select=id,body")
-				.arg(channel)
-				.arg(last);
+				    .arg(channel)
+				    .arg(last);
 		QNetworkReply *reply = net->get(restRequest(q));
 		connect(reply, &QNetworkReply::finished, this, [this, reply, channel]() {
 			reply->deleteLater();
@@ -210,8 +212,9 @@ void IRLRelayClient::poll()
 					continue;
 				lastIds[channel] = id;
 				deleteRow(id);
-				handleIncoming(channel, id,
-					       QJsonDocument(row.value("body").toObject()).toJson(QJsonDocument::Compact));
+				handleIncoming(
+					channel, id,
+					QJsonDocument(row.value("body").toObject()).toJson(QJsonDocument::Compact));
 			}
 		});
 	}

@@ -290,8 +290,7 @@ void IRLToolkitDock::refreshPairing()
 	QString payload;
 	IRLRelayClient *relay = irl_get_relay_client();
 	if (relay && relay->isConfigured() && !IRLRelayClient::pwaUrl().isEmpty()) {
-		payload = QString("%1/?channel=%2&code=%3")
-				  .arg(IRLRelayClient::pwaUrl(), pm->channel(), pm->code());
+		payload = QString("%1/?channel=%2&code=%3").arg(IRLRelayClient::pwaUrl(), pm->channel(), pm->code());
 	} else {
 		IRLWebSocketServer *srv = irl_get_websocket_server();
 		const quint16 port = srv ? srv->port() : 8087;
