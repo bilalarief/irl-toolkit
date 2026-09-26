@@ -54,8 +54,10 @@ export function Drawers({
     }
   }, [selectedItem]);
 
-  // OBS enum order is bottom-first; display top-first like the OBS sources list
-  const displayItems = useMemo(() => [...(scene?.items ?? [])].reverse(), [scene]);
+  // OBS enum order is bottom-first; display top-first like the OBS sources list.
+  // Computed inline (no memo): the store mutates items in place on reorder,
+  // so a memo on the stable scene reference would go stale after a drop.
+  const displayItems = [...(scene?.items ?? [])].reverse();
 
   if (drawer === 'none') return null;
 
@@ -634,53 +636,84 @@ function OverlayOrderList({
     return [...rest.slice(0, idx), dragged, ...rest.slice(idx)];
   }, [items, dragId, dropIndex]);
 
-  const indexForY = (y: number) => {
-    for (let i = 0; i < ordered.length; i++) {
-      const el = rowRefs.current.get(ordered[i].sceneItemId);
+  // Measure against the non-dragged rows only. Including the dragged row
+  // (which moves in the DOM as `ordered` updates) creates a feedback loop
+  // that makes the list jitter mid-drag.
+  const indexForY = (y: number, excludeId: number) => {
+    const others = ordered.filter((i) => i.sceneItemId !== excludeId);
+    for (let i = 0; i < others.length; i++) {
+      const el = rowRefs.current.get(others[i].sceneItemId);
       if (!el) continue;
       const r = el.getBoundingClientRect();
       if (y < r.top + r.height / 2) return i;
     }
-    return ordered.length;
+    return others.length;
+  };
+
+  const commit = (id: number, idx: number) => {
+    const cur = itemsRef.current.filter((i) => i.sceneItemId !== id);
+    const dragged = itemsRef.current.find((i) => i.sceneItemId === id);
+    if (!dragged) return;
+    const at = Math.max(0, Math.min(idx, cur.length));
+    onReorder([...cur.slice(0, at), dragged, ...cur.slice(at)].map((i) => i.sceneItemId));
   };
 
   const onGripDown = (e: React.PointerEvent, id: number) => {
     e.stopPropagation();
     e.preventDefault();
     dragIdRef.current = id;
+    // Start the drop marker where the row already is — no visual jump on grab
+    const startIdx = itemsRef.current.findIndex((i) => i.sceneItemId === id);
+    dropRef.current = startIdx === -1 ? 0 : startIdx;
+    setDropIndex(dropRef.current);
     setDragId(id);
     let moved = false;
     const startY = e.clientY;
+    const cleanup = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', cancel);
+    };
     const move = (ev: PointerEvent) => {
       if (Math.abs(ev.clientY - startY) > 4) moved = true;
-      const idx = indexForY(ev.clientY);
+      const idx = indexForY(ev.clientY, id);
       dropRef.current = idx;
       setDropIndex(idx);
     };
     const up = () => {
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
+      cleanup();
       const didMove = moved;
-      const finalId = dragIdRef.current;
       dragIdRef.current = null;
       setDragId(null);
-      if (didMove && finalId !== null) {
+      if (didMove) {
         suppressClick.current = true;
-        // Commit top-first order from the latest items
-        const cur = itemsRef.current.filter((i) => i.sceneItemId !== finalId);
-        const dragged = itemsRef.current.find((i) => i.sceneItemId === finalId);
-        if (dragged) {
-          const idx = Math.max(0, Math.min(dropRef.current, cur.length));
-          onReorder([...cur.slice(0, idx), dragged, ...cur.slice(idx)].map((i) => i.sceneItemId));
-        }
+        commit(id, dropRef.current);
       }
+    };
+    const cancel = () => {
+      // Pointer taken over (e.g. scroll takeover): abort, don't commit
+      cleanup();
+      dragIdRef.current = null;
+      setDragId(null);
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', cancel);
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', maxHeight: 220, overflowY: 'auto' }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+        width: '100%',
+        maxHeight: 220,
+        overflowY: 'auto',
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+      }}
+    >
       {ordered.map((it) => {
         const dragging = dragId === it.sceneItemId;
         return (
