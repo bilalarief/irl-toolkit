@@ -39,6 +39,7 @@ IRLWebSocketServer *irl_get_websocket_server()
 bool obs_module_load(void)
 {
 	obs_log(LOG_INFO, "plugin loaded successfully (version %s)", PLUGIN_VERSION);
+	obs_log(LOG_INFO, "protocol features: save_changes(+order/delete) get_scene get_scenes switch_scene");
 
 	QMainWindow *mainWindow = static_cast<QMainWindow *>(obs_frontend_get_main_window());
 	if (!mainWindow) {
