@@ -50,6 +50,18 @@ IRLRelayClient *irl_get_relay_client()
 	return irl_relay;
 }
 
+// Tools -> IRL Toolkit: guaranteed way to bring the dock back if it was
+// closed with X and the View -> Docks toggle misbehaves.
+static void on_tools_menu_show(void *private_data)
+{
+	(void)private_data;
+	if (irl_toolkit_dock) {
+		irl_toolkit_dock->setVisible(true);
+		irl_toolkit_dock->raise();
+		irl_toolkit_dock->activateWindow();
+	}
+}
+
 bool obs_module_load(void)
 {
 	obs_log(LOG_INFO, "plugin loaded successfully (version %s)", PLUGIN_VERSION);
@@ -81,6 +93,7 @@ bool obs_module_load(void)
 		title = "IRL Toolkit";
 
 	obs_frontend_add_dock_by_id("irl-toolkit-dock", title, irl_toolkit_dock);
+	obs_frontend_add_tools_menu_item("IRL Toolkit", on_tools_menu_show, nullptr);
 
 	obs_log(LOG_INFO, "IRL Toolkit dock created");
 	return true;
