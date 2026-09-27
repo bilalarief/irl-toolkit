@@ -35,6 +35,15 @@ static bool enumSceneItems(obs_scene_t *scene, obs_sceneitem_t *item, void *para
 		info.sourceType = type ? type : "";
 		info.width = static_cast<float>(obs_source_get_width(src));
 		info.height = static_cast<float>(obs_source_get_height(src));
+		if (info.sourceType == "browser_source") {
+			// Settings object is owned by the source — read only.
+			obs_data_t *settings = obs_source_get_settings(src);
+			if (settings) {
+				const char *url = obs_data_get_string(settings, "url");
+				if (url)
+					info.url = url;
+			}
+		}
 	}
 
 	struct vec2 pos;

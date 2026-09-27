@@ -224,6 +224,13 @@ export function Canvas({
       {scene?.items.map((it) => {
         const { x, y, width, height } = obsToEditor(it.x, it.y, it.width * it.scaleX, it.height * it.scaleY, obsCanvas, editorCanvas);
         const isSelected = selectedId === it.sceneItemId;
+        // Browser sources render their live page, scaled into the box.
+        // Anything else stays a labeled box.
+        const liveUrl = it.sourceType === 'browser_source' && it.url ? it.url : null;
+        const boxW = Math.max(28, width);
+        const boxH = Math.max(24, height);
+        const natW = it.width > 0 ? it.width : boxW;
+        const natH = it.height > 0 ? it.height : boxH;
 
         return (
           <div
@@ -236,18 +243,38 @@ export function Canvas({
               position: 'absolute',
               left: x,
               top: y,
-              width: Math.max(28, width),
-              height: Math.max(24, height),
+              width: boxW,
+              height: boxH,
               transform: `rotate(${it.rotation}deg)`,
               transformOrigin: 'top left',
               opacity: it.visible ? 1 : 0.35,
               border: isSelected ? '2px solid #fac800' : '1px solid rgba(255,255,255,0.2)',
-              backgroundColor: isSelected ? 'rgba(250, 200, 0, 0.08)' : 'rgba(0,0,0,0.18)',
+              backgroundColor: liveUrl ? '#000' : isSelected ? 'rgba(250, 200, 0, 0.08)' : 'rgba(0,0,0,0.18)',
               boxSizing: 'border-box',
               cursor: 'grab',
               zIndex: isSelected ? 20 : 5,
+              overflow: 'hidden',
             }}
           >
+            {liveUrl && (
+              <iframe
+                src={liveUrl}
+                title={it.sourceName}
+                sandbox="allow-scripts allow-same-origin allow-forms"
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  top: 0,
+                  width: natW,
+                  height: natH,
+                  border: 0,
+                  pointerEvents: 'none',
+                  transform: `scale(${boxW / natW}, ${boxH / natH})`,
+                  transformOrigin: 'top left',
+                  background: 'transparent',
+                }}
+              />
+            )}
             {/* Tag on Top-Left */}
             {isSelected ? (
               <div

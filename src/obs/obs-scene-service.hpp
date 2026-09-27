@@ -17,6 +17,9 @@ struct SceneItemInfo {
 	int64_t sceneItemId = 0;
 	std::string sourceName;
 	std::string sourceType;
+	// Browser source URL (empty for other source types). Lets the PWA
+	// render the live page itself instead of a placeholder box.
+	std::string url;
 	float x = 0.f;
 	float y = 0.f;
 	float width = 0.f;
