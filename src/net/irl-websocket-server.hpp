@@ -26,6 +26,8 @@ public:
 	bool isListening() const;
 	int clientCount() const;
 	int authedCount() const { return authed.size(); }
+	// Drops all paired sockets back to unpaired (they must pair again).
+	void revokeAll() { authed.clear(); }
 
 signals:
 	void clientConnected();

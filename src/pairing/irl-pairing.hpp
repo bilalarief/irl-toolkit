@@ -6,16 +6,17 @@
 #include <QString>
 #include <QStringList>
 
-// Short-lived pairing bootstrap -> long-lived session.
+// Short-lived pairing bootstrap -> persistent session.
 // Flow: dock shows QR/code (single-use, 5 min) -> PWA redeems it once ->
-// gets a session id (24 h) used for reconnects and, later, the relay.
-// No accounts, no permanent secrets in QR codes.
+// gets a session id that never expires and survives OBS restarts, so the
+// phone reconnects on its own (important when away from the PC). Use the
+// dock "Unpair all" button to revoke. No accounts, no permanent secrets
+// in QR codes.
 class IRLPairingManager : public QObject {
 	Q_OBJECT
 
 public:
 	static constexpr int PAIR_TTL_SECS = 300;
-	static constexpr int SESSION_TTL_SECS = 24 * 3600;
 
 	explicit IRLPairingManager(QObject *parent = nullptr);
 
@@ -34,6 +35,9 @@ public:
 	QString redeemToken(const QString &token);
 	QString redeemCode(const QString &code);
 	bool validateSession(const QString &id);
+	// Revokes every session at once (phones must pair again). The pending
+	// pairing code is left untouched.
+	void revokeAll();
 	// Channels the relay should listen on: pending pairing + live sessions.
 	QStringList activeChannels();
 
@@ -46,10 +50,11 @@ signals:
 private:
 	struct Session {
 		QString id;
-		QDateTime expires;
 	};
 
 	void prune();
+	void loadSessions();
+	void saveSessions();
 	static QString randomHex(int bytes);
 
 	QString pendingToken;

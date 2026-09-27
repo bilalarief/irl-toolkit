@@ -20,6 +20,7 @@ private slots:
 	void updateWebSocketStatus();
 	void refreshPairing();
 	void regeneratePairing();
+	void revokeAllSessions();
 	void saveRelaySettings();
 	void updateRelayStatus();
 

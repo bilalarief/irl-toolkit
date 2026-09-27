@@ -3,11 +3,26 @@
 #include <QHostAddress>
 #include <QNetworkInterface>
 #include <QRandomGenerator>
+#include <QSettings>
 
 #include <obs-module.h>
 #include <plugin-support.h>
 
-IRLPairingManager::IRLPairingManager(QObject *parent) : QObject(parent) {}
+namespace {
+
+constexpr char SESSIONS_KEY[] = "sessions";
+
+QSettings pairingSettings()
+{
+	return QSettings("IRLToolkit", "irl-toolkit");
+}
+
+} // namespace
+
+IRLPairingManager::IRLPairingManager(QObject *parent) : QObject(parent)
+{
+	loadSessions();
+}
 
 void IRLPairingManager::regenerate(int ttlSecs)
 {
@@ -43,8 +58,11 @@ QString IRLPairingManager::redeemToken(const QString &token)
 		return {};
 	}
 	// The session id is the relay channel: same credential, any transport.
+	// Sessions never expire and survive restarts (see loadSessions) so the
+	// phone reconnects on its own; revoke them from the dock if needed.
 	const QString sessionId = pendingChannel;
-	sessions.insert(sessionId, {sessionId, QDateTime::currentDateTimeUtc().addSecs(SESSION_TTL_SECS)});
+	sessions.insert(sessionId, {sessionId});
+	saveSessions();
 	// Single-use: consume the pairing
 	pendingToken.clear();
 	pendingCode.clear();
@@ -62,7 +80,8 @@ QString IRLPairingManager::redeemCode(const QString &code)
 		return {};
 	}
 	const QString sessionId = pendingChannel;
-	sessions.insert(sessionId, {sessionId, QDateTime::currentDateTimeUtc().addSecs(SESSION_TTL_SECS)});
+	sessions.insert(sessionId, {sessionId});
+	saveSessions();
 	pendingToken.clear();
 	pendingCode.clear();
 	pendingChannel.clear();
@@ -73,17 +92,17 @@ QString IRLPairingManager::redeemCode(const QString &code)
 
 bool IRLPairingManager::validateSession(const QString &id)
 {
-	prune();
 	if (id.isEmpty())
 		return false;
-	auto it = sessions.find(id);
-	if (it == sessions.end())
-		return false;
-	if (QDateTime::currentDateTimeUtc() >= it->expires) {
-		sessions.erase(it);
-		return false;
-	}
-	return true;
+	return sessions.contains(id);
+}
+
+void IRLPairingManager::revokeAll()
+{
+	sessions.clear();
+	saveSessions();
+	obs_log(LOG_INFO, "all pairing sessions revoked");
+	emit pairingChanged();
 }
 
 QStringList IRLPairingManager::activeChannels()
@@ -108,13 +127,23 @@ QString IRLPairingManager::lanIpAddress()
 
 void IRLPairingManager::prune()
 {
-	const QDateTime now = QDateTime::currentDateTimeUtc();
-	for (auto it = sessions.begin(); it != sessions.end();) {
-		if (now >= it->expires)
-			it = sessions.erase(it);
-		else
-			++it;
+	// Sessions are persistent by design (revoked only via revokeAll).
+}
+
+void IRLPairingManager::loadSessions()
+{
+	const QStringList ids = pairingSettings().value(SESSIONS_KEY).toStringList();
+	for (const QString &id : ids) {
+		if (!id.isEmpty())
+			sessions.insert(id, {id});
 	}
+	if (!sessions.isEmpty())
+		obs_log(LOG_INFO, "loaded %d pairing session(s) from disk", static_cast<int>(sessions.size()));
+}
+
+void IRLPairingManager::saveSessions()
+{
+	pairingSettings().setValue(SESSIONS_KEY, QStringList(sessions.keys()));
 }
 
 QString IRLPairingManager::randomHex(int bytes)

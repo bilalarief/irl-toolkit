@@ -23,6 +23,8 @@ public:
 	bool isConfigured() const;
 	QString statusText() const;
 	void reconfigure();
+	// Drops all relay-authenticated channels (they must pair again).
+	void revokeAll() { relayAuthed.clear(); }
 
 	// Persisted dock settings
 	static QString supaUrl();

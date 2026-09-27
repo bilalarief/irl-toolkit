@@ -115,6 +115,14 @@ IRLToolkitDock::IRLToolkitDock(QWidget *parent) : QDockWidget(parent)
 	connect(regenBtn, &QPushButton::clicked, this, &IRLToolkitDock::regeneratePairing);
 	mainLayout->addWidget(regenBtn);
 
+	QPushButton *unpairBtn = new QPushButton("Unpair all devices", container);
+	unpairBtn->setStyleSheet(
+		"QPushButton { background: transparent; color: #b91c1c; border: 1px solid #fecaca; border-radius: 8px; padding: 6px 12px; font-size: 12px; }"
+		"QPushButton:hover { background: #fef2f2; }");
+	unpairBtn->setToolTip("Revoke every paired phone. They must scan a fresh code to reconnect.");
+	connect(unpairBtn, &QPushButton::clicked, this, &IRLToolkitDock::revokeAllSessions);
+	mainLayout->addWidget(unpairBtn);
+
 	QLabel *waitingLabel = new QLabel("Scan the QR or type the code in the phone app.", container);
 	waitingLabel->setAlignment(Qt::AlignCenter);
 	waitingLabel->setStyleSheet("font-size: 12px; color: #6b7280; font-style: italic;");
@@ -254,6 +262,17 @@ void IRLToolkitDock::regeneratePairing()
 {
 	if (IRLPairingManager *pm = irl_get_pairing_manager())
 		pm->regenerate();
+}
+
+void IRLToolkitDock::revokeAllSessions()
+{
+	if (IRLPairingManager *pm = irl_get_pairing_manager())
+		pm->revokeAll();
+	if (IRLWebSocketServer *srv = irl_get_websocket_server())
+		srv->revokeAll();
+	if (IRLRelayClient *relay = irl_get_relay_client())
+		relay->revokeAll();
+	updateWebSocketStatus();
 }
 
 void IRLToolkitDock::saveRelaySettings()

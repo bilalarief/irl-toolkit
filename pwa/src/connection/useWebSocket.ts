@@ -177,7 +177,14 @@ function useDirectTransport(enabled: boolean): Transport {
     if (localStorage.getItem(SESSION_KEY) || pendingCred.current) {
       connect();
     }
+    // When the phone regains internet outside, reconnect immediately
+    // instead of waiting for the dead socket to time out.
+    const onOnline = () => {
+      if (localStorage.getItem(SESSION_KEY) || pendingCred.current) connect();
+    };
+    window.addEventListener('online', onOnline);
     return () => {
+      window.removeEventListener('online', onOnline);
       wantReconnect.current = false;
       if (reconnectTimer.current) window.clearTimeout(reconnectTimer.current);
       wsRef.current?.close();
