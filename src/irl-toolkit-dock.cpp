@@ -337,8 +337,9 @@ void IRLToolkitDock::updateWebSocketStatus()
 		return;
 	}
 	if (srv->isListening()) {
-		wsStatusLabel->setText(
-			QString("WebSocket: ws://%1:%2").arg(IRLPairingManager::lanIpAddress()).arg(srv->port()));
+		wsStatusLabel->setText(QString("Local: ws://%1:%2 (same WiFi only)")
+					       .arg(IRLPairingManager::lanIpAddress())
+					       .arg(srv->port()));
 		wsStatusLabel->setStyleSheet("font-size: 11px; color: #16a34a; font-family: monospace;");
 		wsClientsLabel->setText(
 			QString("Clients: %1 (paired %2)").arg(srv->clientCount()).arg(srv->authedCount()));
